@@ -156,13 +156,13 @@ STR = {
     "welcome_title": {"en": "👋 Thanks for adding {brand}!", "fr": "👋 Merci d'avoir ajouté {brand} !"},
     "welcome_desc": {"en": ("To get started (requires the **Manage Server** permission):\n"
                             "1️⃣ `/config channels` — pick the dashboard channel\n"
-                            "2️⃣ `/config add-server` — add your game server (IP + query port)\n"
+                            "2️⃣ `/config add-server` — add your game server (name + `IP:port`)\n"
                             "3️⃣ `/config timezone` — set your time zone\n"
                             "4️⃣ `/config language` — English or Français\n\n"
                             "Type `/help` to see all commands."),
                      "fr": ("Pour démarrer (réservé aux membres avec la permission **Gérer le serveur**) :\n"
                             "1️⃣ `/config channels` — choisis le salon du tableau de bord\n"
-                            "2️⃣ `/config add-server` — ajoute ton serveur de jeu (IP + port de requête)\n"
+                            "2️⃣ `/config add-server` — ajoute ton serveur de jeu (nom + `IP:port`)\n"
                             "3️⃣ `/config timezone` — règle ton fuseau horaire\n"
                             "4️⃣ `/config language` — English ou Français\n\n"
                             "Tape `/help` pour voir toutes les commandes.")},
@@ -185,6 +185,8 @@ STR = {
                   "fr": "❌ Limite atteinte ({limit} serveurs pour l'offre {plan}).{up}"},
     "add_up": {"en": "\n⭐ Go **Premium** for up to {n} servers: {url}",
                "fr": "\n⭐ Passe en **Premium** pour aller jusqu'à {n} serveurs : {url}"},
+    "add_badaddr": {"en": "❌ Invalid address. Use `IP:port`, for example `151.242.127.127:27018` (the port is your server's **query port**).",
+                    "fr": "❌ Adresse invalide. Utilise `IP:port`, par exemple `151.242.127.127:27018` (le port est le **port de requête** de ton serveur)."},
     "add_exists": {"en": "❌ A server named **{name}** already exists.", "fr": "❌ Un serveur nommé **{name}** existe déjà."},
     "add_refused": {"en": "❌ Address refused: {err}. Use your server's public IP or domain.",
                     "fr": "❌ Adresse refusée : {err}. Utilise l'IP publique ou le domaine de ton serveur."},
@@ -581,6 +583,18 @@ async def send_chunks(channel, lines, limit=1900):
 HOST_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9\-\.]{0,251}[A-Za-z0-9])?$")
 
 
+def parse_address(text):
+    """'1.2.3.4:27015' ou 'mon.domaine.fr:27015' -> (hôte, port). Lève ValueError si invalide."""
+    t = text.strip().lower()
+    t = re.sub(r"^[a-z]+://", "", t).split("/")[0]
+    if t.count(":") != 1:
+        raise ValueError("format")
+    host, port_s = t.split(":")
+    if not host or not port_s.isdigit() or not (1024 <= int(port_s) <= 65535):
+        raise ValueError("format")
+    return host, int(port_s)
+
+
 def resolve_public(host):
     """Résout l'hôte en IPv4 et refuse toute adresse non publique (réseau local, loopback, etc.)."""
     if not HOST_RE.match(host):
@@ -802,6 +816,24 @@ def build_dashboard_embeds(views, blacklist, tribes, lang):
     embeds = [discord.Embed(description=t, color=discord.Color.blue()) for t in pages]
     embeds[-1].set_footer(text=tr(lang, "dash_footer", brand=BRAND, tick=TICK))
     return embeds
+
+
+async def update_dashboard(g, channel, embeds):
+    s = st(g)
+    gid = g["guild_id"]
+    if s["dashboard_id"]:
+        try:
+            await channel.get_partial_message(s["dashboard_id"]).edit(embeds=embeds)
+            return
+        except discord.NotFound:
+            s["dashboard_id"] = None
+        except discord.HTTPException as exc:
+            log.warning("Dashboard edit failed (%s): %s", gid, exc)
+            return
+    msg = await safe_send(channel, embeds=embeds)
+    if msg:
+        s["dashboard_id"] = msg.id
+        await adb("UPDATE guilds SET dashboard_id = ? WHERE guild_id = ?", (msg.id, gid))
 
 
 # ======================================================================================
@@ -1250,12 +1282,12 @@ async def cfg_language(interaction: discord.Interaction, language: app_commands.
 
 
 @config_group.command(name="add-server", description="Add a game server to monitor.")
-@app_commands.describe(name="Display name (e.g. Ragnarok)", ip="Server IP or domain name",
-                       port="Server QUERY port, e.g. 27015")
+@app_commands.describe(name="Display name (e.g. Ragnarok)",
+                       address="IP:query port, e.g. 151.242.127.127:27018")
 async def cfg_add(interaction: discord.Interaction, name: app_commands.Range[str, 1, 32],
-                  ip: app_commands.Range[str, 3, 253], port: app_commands.Range[int, 1024, 65535]):
+                  address: app_commands.Range[str, 5, 260]):
     await interaction.response.defer(ephemeral=True)
-    gid, name, ip = interaction.guild_id, name.strip(), ip.strip().lower()
+    gid, name = interaction.guild_id, name.strip()
     g = await get_guild(gid)
     lang = g["lang"]
     rows = (await adb("SELECT name FROM servers WHERE guild_id = ?", (gid,), fetch="all")) or []
@@ -1267,6 +1299,11 @@ async def cfg_add(interaction: discord.Interaction, name: app_commands.Range[str
         return
     if any(r[0].lower() == name.lower() for r in rows):
         await interaction.followup.send(tr(lang, "add_exists", name=nm(name)), ephemeral=True)
+        return
+    try:
+        ip, port = parse_address(address)
+    except ValueError:
+        await interaction.followup.send(tr(lang, "add_badaddr"), ephemeral=True)
         return
     try:
         await asyncio.to_thread(resolve_public, ip)
