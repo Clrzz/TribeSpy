@@ -1,5 +1,6 @@
 """
-TribeSpy — bot Discord public (multi-serveurs) de suivi de serveurs de jeu compatibles Steam A2S.
+TribeSpy — public (multi-server) Discord bot tracking Steam A2S compatible game servers.
+English by default, French optional per Discord server (/config language).
 
 * Chaque serveur Discord a sa propre configuration, ses propres serveurs de jeu et ses propres données.
 * Aucun intent privilégié requis (pas de "message content").
@@ -51,7 +52,7 @@ MAX_LIST = 500                                                   # taille max bl
 
 # Offres : modifie librement ces valeurs pour ajuster gratuit / premium.
 PLANS = {
-    "free": {"label": "Gratuit", "max_servers": int(os.environ.get("FREE_MAX_SERVERS", "3")),
+    "free": {"label": "Free", "max_servers": int(os.environ.get("FREE_MAX_SERVERS", "3")),
              "max_blacklist": 10, "roster": False, "summaries": False, "raid": False},
     "premium": {"label": "Premium", "max_servers": int(os.environ.get("PREMIUM_MAX_SERVERS", "30")),
                 "max_blacklist": MAX_LIST, "roster": True, "summaries": True, "raid": True},
@@ -80,6 +81,219 @@ PING_HERE = discord.AllowedMentions(everyone=True)
 
 def utcnow():
     return datetime.now(timezone.utc)
+
+
+# ======================================================================================
+# TEXTES (anglais par défaut, français en option : /config language)
+# ======================================================================================
+LANGS = {"en": "English", "fr": "Français"}
+DEFAULT_LANG = os.environ.get("DEFAULT_LANG", "en")
+if DEFAULT_LANG not in LANGS:
+    DEFAULT_LANG = "en"
+
+STR = {
+    # statuts / offres
+    "st_online": {"en": "Online", "fr": "En ligne"},
+    "st_offline": {"en": "Offline", "fr": "Hors ligne"},
+    "st_unknown": {"en": "Unknown", "fr": "Inconnu"},
+    "plan_free": {"en": "Free", "fr": "Gratuit"},
+    "plan_premium": {"en": "Premium", "fr": "Premium"},
+    # durées
+    "ago_now": {"en": "just now", "fr": "à l'instant"},
+    "ago_min": {"en": "{n} min ago", "fr": "il y a {n} min"},
+    "ago_h": {"en": "{h}h{m:02d} ago", "fr": "il y a {h}h{m:02d}"},
+    "ago_d": {"en": "{n} d ago", "fr": "il y a {n} j"},
+    "pack_more": {"en": "… and {n} more — refine your search", "fr": "… et {n} autre(s) — précise ta recherche"},
+    # alertes et flux
+    "alert_crash_content": {"en": "@here ⚠️ Server outage detected!", "fr": "@here ⚠️ Panne détectée sur un serveur !"},
+    "alert_crash_title": {"en": "🚨 SERVER CRASH ALERT!", "fr": "🚨 ALERTE CRASH SERVEUR !"},
+    "alert_crash_desc": {"en": "Server **{name}** just went **OFFLINE**!",
+                         "fr": "Le serveur **{name}** vient de passer **HORS LIGNE** !"},
+    "alert_back_title": {"en": "✅ Server is back", "fr": "✅ Serveur de retour"},
+    "alert_back_desc": {"en": "Server **{name}** is **ONLINE** again.",
+                        "fr": "Le serveur **{name}** est de nouveau **EN LIGNE**."},
+    "alert_bl": {"en": "🚨 **BLACKLIST ALERT** 🚨: Player 🟥 **{p}**{tag} just connected on **{map}**!",
+                 "fr": "🚨 **ALERTE BLACKLIST** 🚨 : Le joueur 🟥 **{p}**{tag} vient de se connecter sur **{map}** !"},
+    "feed_join": {"en": "🟢 `[{t}]` **{p}**{tag} joined **{map}**", "fr": "🟢 `[{t}]` **{p}**{tag} a rejoint **{map}**"},
+    "feed_leave": {"en": "🔴 `[{t}]` {pre}**{p}**{tag} left **{map}**{sess}",
+                   "fr": "🔴 `[{t}]` {pre}**{p}**{tag} a quitté **{map}**{sess}"},
+    "feed_session": {"en": " *(Session: {d})*", "fr": " *(Session : {d})*"},
+    "raid_content": {"en": "@here 🛡️ PREPARE YOUR DEFENSES!", "fr": "@here 🛡️ PRÉPAREZ LES DÉFENSES !"},
+    "raid_title": {"en": "🚨 RED ALERT: RAID / ATTACK INCOMING?", "fr": "🚨 ALERTE ROUGE : ATTAQUE / RAID IMMINENT ?"},
+    "raid_desc": {"en": "**{n} blacklisted players** spotted simultaneously on **{map}**!\n\nPlayers: {names}",
+                  "fr": "**{n} joueurs blacklistés** repérés en simultané sur **{map}** !\n\nJoueurs : {names}"},
+    # dashboard
+    "dash_offline": {"en": "🔴 **Offline**", "fr": "🔴 **Hors ligne**"},
+    "dash_none": {"en": "No players", "fr": "Aucun joueur"},
+    "dash_header": {"en": "🎮 **Players online**\n👤 **Total: {n} player(s)**\n------------------------------------",
+                    "fr": "🎮 **Joueurs en ligne**\n👤 **Total : {n} joueur(s)**\n------------------------------------"},
+    "dash_more": {"en": "… and {n} more server(s)", "fr": "… et {n} autre(s) serveur(s)"},
+    "dash_footer": {"en": "{brand} • refreshed every {tick}s • 🟥 = Blacklist • [Tribe]",
+                    "fr": "{brand} • actualisation toutes les {tick}s • 🟥 = Blacklist • [Tribu]"},
+    # fiche des joueurs
+    "roster_header": {"en": "📋 **Cluster players** — {n} player(s) · 🟢 {on} online\n*Sorted by playtime • top 2 maps*\n------------------------------------",
+                      "fr": "📋 **Joueurs du cluster** — {n} joueur(s) · 🟢 {on} en ligne\n*Triés par temps de jeu • 2 maps les plus jouées*\n------------------------------------"},
+    "roster_none": {"en": "No active players.", "fr": "Aucun joueur actif."},
+    "roster_more": {"en": "\n… and {n} more", "fr": "\n… et {n} autre(s)"},
+    "roster_footer": {"en": "Players inactive for {d}+ days are removed automatically • 🟥 = Blacklist • ▫️ = offline",
+                      "fr": "Inactifs depuis +{d} jours retirés automatiquement • 🟥 = Blacklist • ▫️ = hors ligne"},
+    # bilans
+    "daily_title": {"en": "🌙 Daily recap & playtime", "fr": "🌙 Bilan quotidien & temps de jeu"},
+    "daily_desc": {"en": "Activity report for **{date}**", "fr": "Rapport d'activité du **{date}**"},
+    "daily_active": {"en": "👥 Unique active players today", "fr": "👥 Joueurs uniques actifs aujourd'hui"},
+    "daily_bl": {"en": "🚨 Blacklisted players spotted today", "fr": "🚨 Joueurs de la blacklist repérés aujourd'hui"},
+    "daily_bl_none": {"en": "No blacklisted player was seen.", "fr": "Aucun joueur blacklisté n'a été aperçu."},
+    "daily_time": {"en": "⏱️ Playtime today", "fr": "⏱️ Temps de jeu de la journée"},
+    "daily_footer": {"en": "{brand} • automatic recap at 23:00", "fr": "{brand} • bilan automatique de 23:00"},
+    "weekly_title": {"en": "👑 NO-LIFE OF THE WEEK", "fr": "👑 LE NO-LIFE DE LA SEMAINE"},
+    "weekly_desc": {"en": "Congratulations to **{p}**, who takes the tryhard crown!\n\n{podium}",
+                    "fr": "Félicitations à **{p}** qui remporte la palme du tryhard !\n\n{podium}"},
+    # bot
+    "welcome_title": {"en": "👋 Thanks for adding {brand}!", "fr": "👋 Merci d'avoir ajouté {brand} !"},
+    "welcome_desc": {"en": ("To get started (requires the **Manage Server** permission):\n"
+                            "1️⃣ `/config channels` — pick the dashboard channel\n"
+                            "2️⃣ `/config add-server` — add your game server (IP + query port)\n"
+                            "3️⃣ `/config timezone` — set your time zone\n"
+                            "4️⃣ `/config language` — English or Français\n\n"
+                            "Type `/help` to see all commands."),
+                     "fr": ("Pour démarrer (réservé aux membres avec la permission **Gérer le serveur**) :\n"
+                            "1️⃣ `/config channels` — choisis le salon du tableau de bord\n"
+                            "2️⃣ `/config add-server` — ajoute ton serveur de jeu (IP + port de requête)\n"
+                            "3️⃣ `/config timezone` — règle ton fuseau horaire\n"
+                            "4️⃣ `/config language` — English ou Français\n\n"
+                            "Tape `/help` pour voir toutes les commandes.")},
+    "err_generic": {"en": "❌ An error occurred. Please try again in a moment.",
+                    "fr": "❌ Une erreur est survenue. Réessaie dans un instant."},
+    "err_admin": {"en": "⛔ Restricted to members with the “Manage Server” permission.",
+                  "fr": "⛔ Réservé aux membres ayant la permission « Gérer le serveur »."},
+    # /config
+    "ch_perm": {"en": "❌ I'm missing **View Channel**, **Send Messages** and **Embed Links** in {ch}.",
+                "fr": "❌ Je n'ai pas les droits **Voir le salon**, **Envoyer des messages** et **Intégrer des liens** dans {ch}."},
+    "ch_dash": {"en": "✅ Dashboard: {ch}", "fr": "✅ Tableau de bord : {ch}"},
+    "ch_hist": {"en": "\n✅ History: {ch}", "fr": "\n✅ Historique : {ch}"},
+    "ch_nohist": {"en": "\nℹ️ No history channel (alerts and connection feed disabled).",
+                  "fr": "\nℹ️ Pas de salon d'historique (alertes et connexions désactivées)."},
+    "tz_unknown": {"en": "❌ Unknown time zone. Start typing (e.g. `Europe/Par`) and pick from the list.",
+                   "fr": "❌ Fuseau inconnu. Commence à taper (ex : `Europe/Par`) et choisis dans la liste."},
+    "tz_set": {"en": "✅ Time zone set to **{tz}**.", "fr": "✅ Fuseau horaire réglé sur **{tz}**."},
+    "lang_set": {"en": "✅ Language set to **{name}**.", "fr": "✅ Langue réglée sur **{name}**."},
+    "add_limit": {"en": "❌ Limit reached ({limit} servers on the {plan} plan).{up}",
+                  "fr": "❌ Limite atteinte ({limit} serveurs pour l'offre {plan}).{up}"},
+    "add_up": {"en": "\n⭐ Go **Premium** for up to {n} servers: {url}",
+               "fr": "\n⭐ Passe en **Premium** pour aller jusqu'à {n} serveurs : {url}"},
+    "add_exists": {"en": "❌ A server named **{name}** already exists.", "fr": "❌ Un serveur nommé **{name}** existe déjà."},
+    "add_refused": {"en": "❌ Address refused: {err}. Use your server's public IP or domain.",
+                    "fr": "❌ Adresse refusée : {err}. Utilise l'IP publique ou le domaine de ton serveur."},
+    "add_ok": {"en": "✅ **{name}** added — server reachable ({c}/{m} players).",
+               "fr": "✅ **{name}** ajouté — serveur joignable ({c}/{m} joueurs)."},
+    "add_noresp": {"en": "⚠️ **{name}** added, but it isn't responding yet. Make sure you used the **query port** (often different from the game port) and that it isn't blocked by a firewall.",
+                   "fr": "⚠️ **{name}** ajouté, mais il ne répond pas pour l'instant. Vérifie que tu as bien mis le **port de requête** (query port, souvent différent du port de jeu) et qu'il n'est pas bloqué par un pare-feu."},
+    "rm_ok": {"en": "🗑️ **{name}** removed.", "fr": "🗑️ **{name}** retiré."},
+    "rm_none": {"en": "❌ No server named **{name}**.", "fr": "❌ Aucun serveur nommé **{name}**."},
+    "status_title": {"en": "⚙️ {brand} configuration", "fr": "⚙️ Configuration de {brand}"},
+    "status_plan": {"en": "Plan", "fr": "Offre"},
+    "status_plan_val": {"en": "**{plan}** • {n}/{max} servers", "fr": "**{plan}** • {n}/{max} serveurs"},
+    "status_channels": {"en": "Channels", "fr": "Salons"},
+    "status_channels_val": {"en": "Dashboard: {d}\nHistory: {h}", "fr": "Dashboard : {d}\nHistorique : {h}"},
+    "status_tz": {"en": "Time zone", "fr": "Fuseau horaire"},
+    "status_lang": {"en": "Language", "fr": "Langue"},
+    "status_servers": {"en": "Game servers", "fr": "Serveurs de jeu"},
+    "status_noservers": {"en": "*No server configured*", "fr": "*Aucun serveur configuré*"},
+    "status_undefined": {"en": "❌ not set", "fr": "❌ non défini"},
+    "status_noperm": {"en": "⚠️ missing permissions", "fr": "⚠️ droits manquants"},
+    "status_premium": {"en": "⭐ Premium", "fr": "⭐ Premium"},
+    "status_premium_val": {"en": "Player roster, raid alerts, daily/weekly recaps, more servers. {url}",
+                           "fr": "Fiche des joueurs, alertes raid, bilans quotidiens/hebdo, plus de serveurs. {url}"},
+    # blacklist
+    "bl_full": {"en": "❌ Blacklist full ({n} players max).{up}", "fr": "❌ Blacklist pleine ({n} joueurs max).{up}"},
+    "bl_up": {"en": "\n⭐ **Premium** allows up to {n} players: {url}",
+              "fr": "\n⭐ L'offre **Premium** permet jusqu'à {n} joueurs : {url}"},
+    "bl_added": {"en": "✅ 🟥 **{p}** added to the blacklist.", "fr": "✅ 🟥 **{p}** ajouté à la blacklist."},
+    "bl_removed": {"en": "🗑️ **{p}** removed from the blacklist.", "fr": "🗑️ **{p}** retiré de la blacklist."},
+    "bl_notin": {"en": "❌ **{p}** is not on the blacklist.", "fr": "❌ **{p}** n'est pas dans la blacklist."},
+    "bl_empty": {"en": "📋 The blacklist is empty.", "fr": "📋 La blacklist est vide."},
+    "bl_title": {"en": "🏴‍☠️ Blacklisted players", "fr": "🏴‍☠️ Joueurs blacklistés"},
+    # tribes
+    "tr_limit": {"en": "❌ Limit of {n} affiliations reached.", "fr": "❌ Limite de {n} affiliations atteinte."},
+    "tr_set": {"en": "🏷️ **{p}** → tribe **[{t}]**.", "fr": "🏷️ **{p}** → tribu **[{t}]**."},
+    "tr_removed": {"en": "🗑️ Affiliation of **{p}** removed.", "fr": "🗑️ Affiliation de **{p}** retirée."},
+    "tr_none": {"en": "❌ No affiliation for **{p}**.", "fr": "❌ Aucune affiliation pour **{p}**."},
+    "tr_empty": {"en": "📋 No affiliations recorded.", "fr": "📋 Aucune affiliation enregistrée."},
+    "tr_title": {"en": "🛡️ Tribe directory", "fr": "🛡️ Répertoire des tribus"},
+    # données
+    "data_deleted": {"en": "🗑️ Data for **{p}** deleted ({n} record(s)). If the player is still connected, they'll be recorded again within a minute.",
+                     "fr": "🗑️ Données de **{p}** supprimées ({n} enregistrement(s)). Si le joueur est encore connecté, il sera de nouveau enregistré à la prochaine minute."},
+    "data_confirm": {"en": "❌ Type exactly `{word}` to confirm.", "fr": "❌ Tape exactement `{word}` pour confirmer."},
+    "data_word": {"en": "DELETE", "fr": "SUPPRIMER"},
+    "data_reset_ok": {"en": "🗑️ History and playtime erased.", "fr": "🗑️ Historique et temps de jeu effacés."},
+    # commandes publiques
+    "use_channel": {"en": "❌ Use this command in <#{id}>!", "fr": "❌ Utilise cette commande dans <#{id}> !"},
+    "info_none": {"en": "❌ No playtime recorded for **{p}**.", "fr": "❌ Aucun temps de jeu enregistré pour **{p}**."},
+    "info_title": {"en": "📊 Player profile: {bl}{p}{tag}", "fr": "📊 Fiche joueur : {bl}{p}{tag}"},
+    "info_total": {"en": "⏱️ Total playtime", "fr": "⏱️ Temps de jeu total"},
+    "info_maps": {"en": "🗺️ Breakdown by map", "fr": "🗺️ Répartition par map"},
+    "hist_none": {"en": "❌ No results. Check the spelling (the start of a name is enough).",
+                  "fr": "❌ Aucun résultat. Vérifie l'orthographe (un début de pseudo suffit)."},
+    "hist_online": {"en": "**online now**", "fr": "**en ligne maintenant**"},
+    "hist_when": {"en": "**{ago}** · {date} at {time}", "fr": "**{ago}** · {date} à {time}"},
+    "hist_more_maps": {"en": "└ *+{n} more map(s)*", "fr": "└ *+{n} autre(s) map(s)*"},
+    "hist_n_players": {"en": "{n} player(s)", "fr": "{n} joueur(s)"},
+    "hist_n_maps": {"en": "{n} map(s)", "fr": "{n} map(s)"},
+    "hist_map_head": {"en": "🗺️ **{m}** — {n} player(s)", "fr": "🗺️ **{m}** — {n} joueur(s)"},
+    "hist_more": {"en": "└ *+{n} more*", "fr": "└ *+{n} autre(s)*"},
+    "hist_crit_player": {"en": "player “{p}”", "fr": "joueur « {p} »"},
+    "hist_crit_map": {"en": "map “{m}”", "fr": "map « {m} »"},
+    "hist_crit_default": {"en": "latest connections", "fr": "dernières connexions"},
+    "hist_title": {"en": "🔍 Connection history", "fr": "🔍 Historique des connexions"},
+    "hist_footer": {"en": "Times in {tz} • 🟢 online • ▫️ offline • 🟥 blacklist",
+                    "fr": "Heures en {tz} • 🟢 en ligne • ▫️ hors ligne • 🟥 blacklist"},
+    "stats_title": {"en": "📊 Statistics", "fr": "📊 Statistiques"},
+    "stats_unique": {"en": "👥 Unique players recorded", "fr": "👥 Joueurs uniques enregistrés"},
+    "stats_servers": {"en": "🖥️ Game servers tracked", "fr": "🖥️ Serveurs de jeu suivis"},
+    "stats_bl": {"en": "🟥 Blacklisted players", "fr": "🟥 Joueurs blacklistés"},
+    "stats_tribes": {"en": "🛡️ Tribe affiliations", "fr": "🛡️ Affiliations de tribu"},
+    "help_title": {"en": "❓ Help — {brand}", "fr": "❓ Aide — {brand}"},
+    "help_desc": {"en": ("**For everyone**\n"
+                         "`/history` — last connection of a player on each map\n"
+                         "`/info` — a player's playtime\n"
+                         "`/stats` — Discord server statistics\n\n"
+                         "**For admins** (*Manage Server* permission)\n"
+                         "`/config channels` • `/config add-server` • `/config remove-server` • `/config timezone` • `/config language` • `/config status`\n"
+                         "`/blacklist add|remove|list` • `/tribe set|remove|list`\n"
+                         "`/data delete-player` • `/data reset`"),
+                  "fr": ("**Pour tout le monde**\n"
+                         "`/history` — dernière connexion d'un joueur sur chaque map\n"
+                         "`/info` — temps de jeu d'un joueur\n"
+                         "`/stats` — statistiques du serveur Discord\n\n"
+                         "**Pour les administrateurs** (permission *Gérer le serveur*)\n"
+                         "`/config channels` • `/config add-server` • `/config remove-server` • `/config timezone` • `/config language` • `/config status`\n"
+                         "`/blacklist add|remove|list` • `/tribe set|remove|list`\n"
+                         "`/data delete-player` • `/data reset`")},
+    "help_links": {"en": "Links", "fr": "Liens"},
+    "help_site": {"en": "Website", "fr": "Site web"},
+    "help_privacy": {"en": "Privacy", "fr": "Confidentialité"},
+    "help_support": {"en": "Support", "fr": "Support"},
+}
+
+
+def tr(lang, key, **kw):
+    entry = STR[key]
+    text = entry.get(lang) or entry["en"]
+    return text.format(**kw) if kw else text
+
+
+def plan_label(lang, plan):
+    return tr(lang, "plan_premium" if plan == "premium" else "plan_free")
+
+
+# Valeurs enregistrées en base (indépendantes de la langue). Anciennes valeurs françaises acceptées.
+ST_ON, ST_OFF, ST_UNK = "online", "offline", "unknown"
+_LEGACY_ST = {"En ligne": ST_ON, "Hors ligne": ST_OFF, "Inconnu": ST_UNK}
+
+
+def norm_status(value):
+    return _LEGACY_ST.get(value, value) or ST_UNK
+
 
 
 # ======================================================================================
@@ -176,7 +390,7 @@ def init_db():
     queries = [
         "CREATE TABLE IF NOT EXISTS guilds (guild_id BIGINT PRIMARY KEY, channel_id BIGINT, history_channel_id BIGINT, "
         "tz TEXT, plan TEXT NOT NULL DEFAULT 'free', dashboard_id BIGINT, roster_ids TEXT, last_daily TEXT, "
-        "last_weekly TEXT, created_at TEXT, left_at TEXT)",
+        "last_weekly TEXT, created_at TEXT, left_at TEXT, lang TEXT)",
         "CREATE TABLE IF NOT EXISTS servers (guild_id BIGINT, name TEXT, host TEXT, port INTEGER, status TEXT, "
         "PRIMARY KEY (guild_id, name))",
         "CREATE TABLE IF NOT EXISTS blacklist (guild_id BIGINT, player_name TEXT, PRIMARY KEY (guild_id, player_name))",
@@ -195,6 +409,10 @@ def init_db():
             raise SystemExit(f"Schéma actif « {cur_schema} » au lieu de « {DB_SCHEMA} » : utilise le Session pooler (port 5432).")
     for q in queries:
         db_execute(q)
+    try:                                         # migration : colonne « lang » ajoutée après la première version
+        db_execute("ALTER TABLE guilds ADD COLUMN lang TEXT")
+    except Exception:
+        pass
     if IS_PG:
         # Sécurité (Supabase expose les tables par une API publique) : RLS activé sans règle = accès API refusé.
         # Le bot se connecte avec le propriétaire des tables, qui n'est pas concerné.
@@ -220,11 +438,13 @@ UPSERT_PLAYTIME = (
 UPDATE_STATUS = "UPDATE servers SET status = ? WHERE guild_id = ? AND name = ?"
 
 GUILD_COLS = ("guild_id, channel_id, history_channel_id, tz, plan, dashboard_id, roster_ids, "
-              "last_daily, last_weekly")
+              "last_daily, last_weekly, lang")
 
 
 def row_to_guild(r):
-    return dict(zip(GUILD_COLS.split(", "), r))
+    g = dict(zip(GUILD_COLS.split(", "), r))
+    g["lang"] = g.get("lang") if g.get("lang") in LANGS else DEFAULT_LANG
+    return g
 
 
 async def ensure_guild(gid):
@@ -268,15 +488,15 @@ def fmt_duration(total_sec):
     return f"{h}h {m:02d}m" if h > 0 else f"{m}m"
 
 
-def fmt_ago(secs):
+def fmt_ago(secs, lang="en"):
     secs = max(int(secs), 0)
     if secs < 120:
-        return "à l'instant"
+        return tr(lang, "ago_now")
     if secs < 3600:
-        return f"il y a {secs // 60} min"
+        return tr(lang, "ago_min", n=secs // 60)
     if secs < 86400:
-        return f"il y a {secs // 3600}h{(secs % 3600) // 60:02d}"
-    return f"il y a {secs // 86400} j"
+        return tr(lang, "ago_h", h=secs // 3600, m=(secs % 3600) // 60)
+    return tr(lang, "ago_d", n=secs // 86400)
 
 
 def parse_ts(ls, tz):
@@ -305,11 +525,11 @@ def tribe_tag(player, tribes):
     return f" [{nm(t)}]" if t else ""
 
 
-def pack_blocks(blocks, limit=3900):
+def pack_blocks(blocks, lang="en", limit=3900):
     out, size = [], 0
     for i, blk in enumerate(blocks):
         if size + len(blk) + 2 > limit:
-            out.append(f"… et {len(blocks) - i} autre(s) — précise ta recherche")
+            out.append(tr(lang, "pack_more", n=len(blocks) - i))
             break
         out.append(blk)
         size += len(blk) + 2
@@ -360,14 +580,14 @@ HOST_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9\-\.]{0,251}[A-Za-z0-9])?$")
 def resolve_public(host):
     """Résout l'hôte en IPv4 et refuse toute adresse non publique (réseau local, loopback, etc.)."""
     if not HOST_RE.match(host):
-        raise ValueError("adresse invalide")
+        raise ValueError("invalid address")
     infos = socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_DGRAM)
     ips = sorted({i[4][0] for i in infos})
     if not ips:
-        raise ValueError("hôte introuvable")
+        raise ValueError("host not found")
     for ip in ips:
         if not ipaddress.ip_address(ip).is_global:
-            raise ValueError("adresse non publique refusée")
+            raise ValueError("non-public address refused")
     return ips[0]
 
 
@@ -445,7 +665,7 @@ def online_now(gid):
 # CŒUR : calcul d'un relevé pour UN serveur Discord (aucune entrée/sortie réseau ici)
 # ======================================================================================
 def compute_guild(g, servers, results, blacklist, tribes, now_utc, out):
-    gid = g["guild_id"]
+    gid, lang = g["guild_id"], g["lang"]
     now = now_utc.astimezone(tz_of(g))
     today, time_str = now.strftime("%Y-%m-%d"), now.strftime("%H:%M")
     now_iso = now_utc.isoformat()
@@ -454,33 +674,33 @@ def compute_guild(g, servers, results, blacklist, tribes, now_utc, out):
     for s in servers:
         name, key = s["name"], (gid, s["name"])
         res = results[(s["host"], s["port"])]
-        prev_status = s["status"] or "Inconnu"
+        prev_status = norm_status(s["status"])
 
         if res["online"]:
             fail_streak[key] = 0
-            new_status = "En ligne"
+            new_status = ST_ON
             last_max[key] = res["max_players"]
         else:
             fail_streak[key] = fail_streak.get(key, 0) + 1
-            new_status = "Hors ligne" if fail_streak[key] >= FAIL_THRESHOLD else prev_status
+            new_status = ST_OFF if fail_streak[key] >= FAIL_THRESHOLD else prev_status
 
-        if prev_status == "En ligne" and new_status == "Hors ligne":
-            alerts.append(("@here ⚠️ Panne détectée sur un serveur !", discord.Embed(
-                title="🚨 ALERTE CRASH SERVEUR !",
-                description=f"Le serveur **{nm(name)}** vient de passer **HORS LIGNE** !",
+        if prev_status == ST_ON and new_status == ST_OFF:
+            alerts.append((tr(lang, "alert_crash_content"), discord.Embed(
+                title=tr(lang, "alert_crash_title"),
+                description=tr(lang, "alert_crash_desc", name=nm(name)),
                 color=discord.Color.red()), True))
-        elif prev_status == "Hors ligne" and new_status == "En ligne":
+        elif prev_status == ST_OFF and new_status == ST_ON:
             alerts.append((None, discord.Embed(
-                title="✅ Serveur de retour",
-                description=f"Le serveur **{nm(name)}** est de nouveau **EN LIGNE**.",
+                title=tr(lang, "alert_back_title"),
+                description=tr(lang, "alert_back_desc", name=nm(name)),
                 color=discord.Color.green()), False))
-        if new_status != prev_status:
+        if new_status != s["status"]:
             out["status"].append((new_status, gid, name))
             s["status"] = new_status
 
         if res["online"]:
             views.append({"name": name, "online": True, "players": res["players"], "max": res["max_players"]})
-        elif new_status == "En ligne":            # échec isolé : on garde l'affichage précédent
+        elif new_status == ST_ON:                 # échec isolé : on garde l'affichage précédent
             views.append({"name": name, "online": True, "players": sorted(previous_players.get(key, set())),
                           "max": last_max.get(key, 0)})
         else:
@@ -507,16 +727,16 @@ def compute_guild(g, servers, results, blacklist, tribes, now_utc, out):
             tag = tribe_tag(p, tribes)
             if is_blacklisted(p, blacklist):
                 recent_bl.setdefault(gid, []).append({"player": p, "map": name, "time": now})
-                alerts.append((f"🚨 **ALERTE BLACKLIST** 🚨 : Le joueur 🟥 **{nm(p)}**{tag} "
-                               f"vient de se connecter sur **{nm(name)}** !", None, False))
+                alerts.append((tr(lang, "alert_bl", p=nm(p), tag=tag, map=nm(name)), None, False))
             else:
-                feed.append(f"🟢 `[{time_str}]` **{nm(p)}**{tag} a rejoint **{nm(name)}**")
+                feed.append(tr(lang, "feed_join", t=time_str, p=nm(p), tag=tag, map=nm(name)))
 
         for p in sorted(left):
             start = session_starts.pop((gid, name, p), None)
-            sess = f" *(Session : {fmt_duration((now - start).total_seconds())})*" if start else ""
+            sess = tr(lang, "feed_session", d=fmt_duration((now - start).total_seconds())) if start else ""
             pre = "🟥 " if is_blacklisted(p, blacklist) else ""
-            feed.append(f"🔴 `[{time_str}]` {pre}**{nm(p)}**{tribe_tag(p, tribes)} a quitté **{nm(name)}**{sess}")
+            feed.append(tr(lang, "feed_leave", t=time_str, pre=pre, p=nm(p), tag=tribe_tag(p, tribes),
+                           map=nm(name), sess=sess))
 
         previous_players[key] = current
 
@@ -529,11 +749,10 @@ def compute_guild(g, servers, results, blacklist, tribes, now_utc, out):
             by_map.setdefault(c["map"], set()).add(c["player"])
         for map_name, players in by_map.items():
             if len(players) >= 3:
-                noms = ", ".join(f"🟥 **{nm(p)}**" for p in sorted(players))
-                alerts.append(("@here 🛡️ PRÉPAREZ LES DÉFENSES !", discord.Embed(
-                    title="🚨 ALERTE ROUGE : ATTAQUE / RAID IMMINENT ?",
-                    description=f"**{len(players)} joueurs blacklistés** repérés en simultané sur "
-                                f"**{nm(map_name)}** !\n\nJoueurs : {noms}",
+                names = ", ".join(f"🟥 **{nm(p)}**" for p in sorted(players))
+                alerts.append((tr(lang, "raid_content"), discord.Embed(
+                    title=tr(lang, "raid_title"),
+                    description=tr(lang, "raid_desc", n=len(players), map=nm(map_name), names=names),
                     color=discord.Color.dark_magenta()), True))
                 lst = [c for c in lst if c["map"] != map_name]
         recent_bl[gid] = lst
@@ -546,12 +765,12 @@ def compute_guild(g, servers, results, blacklist, tribes, now_utc, out):
 # ======================================================================================
 # AFFICHAGE : DASHBOARD
 # ======================================================================================
-def build_dashboard_embeds(views, blacklist, tribes):
+def build_dashboard_embeds(views, blacklist, tribes, lang):
     total = sum(len(v["players"]) for v in views if v["online"])
     blocks = []
     for v in views:
         if not v["online"]:
-            blocks.append(f"🗺️ **{nm(v['name'])}**\n🔴 **Hors ligne**")
+            blocks.append(f"🗺️ **{nm(v['name'])}**\n{tr(lang, 'dash_offline')}")
             continue
         if v["players"]:
             parts = []
@@ -562,41 +781,23 @@ def build_dashboard_embeds(views, blacklist, tribes):
             if len(plist) > 700:
                 plist = plist[:690] + "…"
         else:
-            plist = "Aucun joueur"
+            plist = tr(lang, "dash_none")
         blocks.append(f"🗺️ **{nm(v['name'])}**\n🟢 **{len(v['players'])}/{v['max']}** — {plist}")
 
-    header = f"🎮 **Joueurs en ligne**\n👤 **Total : {total} joueur(s)**\n------------------------------------"
+    header = tr(lang, "dash_header", n=total)
     pages, buf = [], header
     for i, blk in enumerate(blocks):
         if len(buf) + len(blk) + 1 > 2800:
             pages.append(buf)
             buf = ""
             if len(pages) == 2:                    # 6000 caractères max par message Discord
-                buf = f"… et {len(blocks) - i} autre(s) serveur(s)"
+                buf = tr(lang, "dash_more", n=len(blocks) - i)
                 break
         buf += ("\n" if buf else "") + blk
     pages.append(buf)
     embeds = [discord.Embed(description=t, color=discord.Color.blue()) for t in pages]
-    embeds[-1].set_footer(text=f"{BRAND} • actualisation toutes les {TICK}s • 🟥 = Blacklist • [Tribu]")
+    embeds[-1].set_footer(text=tr(lang, "dash_footer", brand=BRAND, tick=TICK))
     return embeds
-
-
-async def update_dashboard(g, channel, embeds):
-    s = st(g)
-    gid = g["guild_id"]
-    if s["dashboard_id"]:
-        try:
-            await channel.get_partial_message(s["dashboard_id"]).edit(embeds=embeds)
-            return
-        except discord.NotFound:
-            s["dashboard_id"] = None
-        except discord.HTTPException as exc:
-            log.warning("Édition du dashboard impossible (%s) : %s", gid, exc)
-            return
-    msg = await safe_send(channel, embeds=embeds)
-    if msg:
-        s["dashboard_id"] = msg.id
-        await adb("UPDATE guilds SET dashboard_id = ? WHERE guild_id = ?", (msg.id, gid))
 
 
 # ======================================================================================
@@ -606,7 +807,7 @@ MAX_ROSTER_PAGES = 5
 PAGE_CHARS = 3900
 
 
-async def build_roster_embeds(gid, tz, blacklist, tribes, online):
+async def build_roster_embeds(gid, tz, blacklist, tribes, online, lang):
     cutoff = (utcnow() - timedelta(days=INACTIVE_DAYS)).isoformat()
     history, playtime = await asyncio.gather(
         adb("SELECT player_name, map_name, last_seen FROM history WHERE guild_id = ?", (gid,), fetch="all"),
@@ -635,10 +836,9 @@ async def build_roster_embeds(gid, tz, blacklist, tribes, online):
         lines.append(f"{dot} **{nm(p)}**{tribe_tag(p, tribes)} — {maps_txt}")
 
     n_online = sum(1 for p in active if p in online)
-    header = (f"📋 **Joueurs du cluster** — {len(active)} joueur(s) · 🟢 {n_online} en ligne\n"
-              f"*Triés par temps de jeu • 2 maps les plus jouées*\n------------------------------------")
+    header = tr(lang, "roster_header", n=len(active), on=n_online)
     if not lines:
-        lines = ["Aucun joueur actif."]
+        lines = [tr(lang, "roster_none")]
     pages, buf = [], header
     for line in lines:
         if len(buf) + len(line) + 1 > PAGE_CHARS:
@@ -649,9 +849,9 @@ async def build_roster_embeds(gid, tz, blacklist, tribes, online):
     if len(pages) > MAX_ROSTER_PAGES:
         hidden = sum(pg.count("\n") + 1 for pg in pages[MAX_ROSTER_PAGES:])
         pages = pages[:MAX_ROSTER_PAGES]
-        pages[-1] += f"\n… et {hidden} autre(s)"
+        pages[-1] += tr(lang, "roster_more", n=hidden)
     embeds = [discord.Embed(description=t, color=discord.Color.purple()) for t in pages]
-    embeds[-1].set_footer(text=f"Inactifs depuis +{INACTIVE_DAYS} jours retirés automatiquement • 🟥 = Blacklist • ▫️ = hors ligne")
+    embeds[-1].set_footer(text=tr(lang, "roster_footer", d=INACTIVE_DAYS))
     return embeds
 
 
@@ -702,7 +902,7 @@ async def update_roster(g, channel, embeds):
 # BILANS (heure locale de chaque serveur Discord — offre premium)
 # ======================================================================================
 async def send_daily(g, hchan, blacklist, tribes, now):
-    gid, today = g["guild_id"], now.strftime("%Y-%m-%d")
+    gid, today, lang = g["guild_id"], now.strftime("%Y-%m-%d"), g["lang"]
     rows = (await adb("SELECT player_name, map_name, seconds FROM playtime WHERE guild_id = ? AND date = ?",
                       (gid, today), fetch="all")) or []
     active = {}
@@ -711,12 +911,12 @@ async def send_daily(g, hchan, blacklist, tribes, now):
         info["servers"].add(map_name)
         info["seconds"] += sec or 0
     detected = [p for p in active if is_blacklisted(p, blacklist)]
-    embed = discord.Embed(title="🌙 Bilan quotidien & temps de jeu",
-                          description=f"Rapport d'activité du **{today}**", color=discord.Color.gold())
-    embed.add_field(name="👥 Joueurs uniques actifs aujourd'hui", value=str(len(active)), inline=False)
-    embed.add_field(name="🚨 Joueurs de la blacklist repérés aujourd'hui",
+    embed = discord.Embed(title=tr(lang, "daily_title"),
+                          description=tr(lang, "daily_desc", date=today), color=discord.Color.gold())
+    embed.add_field(name=tr(lang, "daily_active"), value=str(len(active)), inline=False)
+    embed.add_field(name=tr(lang, "daily_bl"),
                     value="\n".join(f"🟥 **{nm(p)}**{tribe_tag(p, tribes)}" for p in detected)[:1024]
-                    or "Aucun joueur blacklisté n'a été aperçu.", inline=False)
+                    or tr(lang, "daily_bl_none"), inline=False)
     if active:
         top = sorted(active.items(), key=lambda x: x[1]["seconds"], reverse=True)[:15]
         lines = []
@@ -724,12 +924,13 @@ async def send_daily(g, hchan, blacklist, tribes, now):
             pre = "🟥 " if is_blacklisted(p, blacklist) else "• "
             lines.append(f"{pre}**{nm(p)}**{tribe_tag(p, tribes)} — ⏱️ `{fmt_duration(info['seconds'])}` "
                          f"(*{nm(', '.join(sorted(info['servers'])))}*)")
-        embed.add_field(name="⏱️ Temps de jeu de la journée", value="\n".join(lines)[:1024], inline=False)
-    embed.set_footer(text=f"{BRAND} • bilan automatique de 23:00")
+        embed.add_field(name=tr(lang, "daily_time"), value="\n".join(lines)[:1024], inline=False)
+    embed.set_footer(text=tr(lang, "daily_footer", brand=BRAND))
     await safe_send(hchan, embed=embed)
 
 
 async def send_weekly(g, hchan, now):
+    lang = g["lang"]
     since = (now - timedelta(days=6)).strftime("%Y-%m-%d")
     rows = (await adb("SELECT player_name, SUM(seconds) AS total FROM playtime WHERE guild_id = ? AND date >= ? "
                       "GROUP BY player_name ORDER BY total DESC LIMIT 3", (g["guild_id"], since), fetch="all")) or []
@@ -738,8 +939,8 @@ async def send_weekly(g, hchan, now):
     medals = ["🥇", "🥈", "🥉"]
     podium = "\n".join(f"{medals[i]} **{nm(n)}** — `{fmt_duration(t)}`" for i, (n, t) in enumerate(rows))
     await safe_send(hchan, embed=discord.Embed(
-        title="👑 LE NO-LIFE DE LA SEMAINE",
-        description=f"Félicitations à **{nm(rows[0][0])}** qui remporte la palme du tryhard !\n\n{podium}",
+        title=tr(lang, "weekly_title"),
+        description=tr(lang, "weekly_desc", p=nm(rows[0][0]), podium=podium),
         color=discord.Color.gold()))
 
 
@@ -783,11 +984,11 @@ async def deliver(g, plan, blacklist, tribes):
         if feat(g, "roster") and (plan["changed"] or s["roster_last"] is None or tick_no % 5 == 0):
             try:
                 online = {p for v in plan["views"] if v["online"] for p in v["players"]}
-                embeds = await build_roster_embeds(g["guild_id"], tz_of(g), blacklist, tribes, online)
+                embeds = await build_roster_embeds(g["guild_id"], tz_of(g), blacklist, tribes, online, g["lang"])
                 await update_roster(g, channel, embeds)
             except Exception:
                 log.exception("Erreur fiche joueurs (%s)", g["guild_id"])
-        await update_dashboard(g, channel, build_dashboard_embeds(plan["views"], blacklist, tribes))
+        await update_dashboard(g, channel, build_dashboard_embeds(plan["views"], blacklist, tribes, g["lang"]))
 
     await maybe_summaries(g, hchan, blacklist, tribes, plan["now"])
 
@@ -880,7 +1081,7 @@ class TribeBot(commands.Bot):
         if os.environ.get("AUTO_SYNC", "1") == "1":
             try:
                 await self.tree.sync()
-            except discord.HTTPException:
+            except Exception:
                 log.exception("Synchronisation des commandes impossible")
         monitor.start()
         maintenance.start()
@@ -905,7 +1106,7 @@ async def on_ready():
     log.info("%s connecté : %s sur %d serveur(s) Discord", BRAND, bot.user, len(bot.guilds))
     for guild in bot.guilds:
         await ensure_guild(guild.id)
-    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="/aide"))
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="/help"))
 
 
 @bot.event
@@ -914,13 +1115,10 @@ async def on_guild_join(guild):
     target = guild.system_channel if can_write(guild.system_channel) else next(
         (c for c in guild.text_channels if can_write(c)), None)
     if target:
+        lang = DEFAULT_LANG
         await safe_send(target, embed=discord.Embed(
-            title=f"👋 Merci d'avoir ajouté {BRAND} !",
-            description=("Pour démarrer (réservé aux membres avec la permission **Gérer le serveur**) :\n"
-                         "1️⃣ `/config salons` — choisis le salon du tableau de bord\n"
-                         "2️⃣ `/config serveur-ajouter` — ajoute ton serveur de jeu (IP + port de requête)\n"
-                         "3️⃣ `/config fuseau` — règle ton fuseau horaire\n\n"
-                         "Tape `/aide` pour voir toutes les commandes."),
+            title=tr(lang, "welcome_title", brand=BRAND),
+            description=tr(lang, "welcome_desc"),
             color=discord.Color.blue()))
 
 
@@ -930,10 +1128,20 @@ async def on_guild_remove(guild):
     forget_guild(guild.id)
 
 
+async def lang_of(guild_id):
+    """Langue du serveur Discord (par défaut : DEFAULT_LANG)."""
+    if not guild_id:
+        return DEFAULT_LANG
+    try:
+        return (await get_guild(guild_id))["lang"]
+    except Exception:
+        return DEFAULT_LANG
+
+
 @bot.tree.error
 async def on_app_error(interaction: discord.Interaction, error):
     log.error("Erreur de commande /%s", getattr(interaction.command, "qualified_name", "?"), exc_info=error)
-    msg = "❌ Une erreur est survenue. Réessaie dans un instant."
+    msg = tr(await lang_of(interaction.guild_id), "err_generic")
     try:
         if interaction.response.is_done():
             await interaction.followup.send(msg, ephemeral=True)
@@ -950,8 +1158,7 @@ class AdminGroup(app_commands.Group):
         perms = getattr(interaction.user, "guild_permissions", None)
         if perms and perms.manage_guild:
             return True
-        await interaction.response.send_message(
-            "⛔ Réservé aux membres ayant la permission « Gérer le serveur ».", ephemeral=True)
+        await interaction.response.send_message(tr(await lang_of(interaction.guild_id), "err_admin"), ephemeral=True)
         return False
 
 
@@ -963,7 +1170,7 @@ def admin_group(name, description):
 # ======================================================================================
 # COMMANDES : /config
 # ======================================================================================
-config_group = admin_group("config", "Configurer le bot pour ce serveur Discord")
+config_group = admin_group("config", "Configure the bot for this Discord server")
 TZ_NAMES = sorted(available_timezones())
 
 
@@ -978,23 +1185,22 @@ async def ac_tz(interaction: discord.Interaction, current: str):
     return [app_commands.Choice(name=z, value=z) for z in TZ_NAMES if cur in z.lower()][:25]
 
 
-@config_group.command(name="salons", description="Choisir le salon du tableau de bord et celui de l'historique.")
-@app_commands.describe(dashboard="Salon du tableau de bord (joueurs en ligne)",
-                       historique="Salon des connexions, alertes et bilans (optionnel)")
-async def cfg_salons(interaction: discord.Interaction, dashboard: discord.TextChannel,
-                     historique: discord.TextChannel = None):
+@config_group.command(name="channels", description="Choose the dashboard channel and the history channel.")
+@app_commands.describe(dashboard="Dashboard channel (players online)",
+                       history="Channel for connections, alerts and recaps (optional)")
+async def cfg_channels(interaction: discord.Interaction, dashboard: discord.TextChannel,
+                       history: discord.TextChannel = None):
     await interaction.response.defer(ephemeral=True)
+    g = await get_guild(interaction.guild_id)
+    lang = g["lang"]
     me = interaction.guild.me
-    for ch in (dashboard, historique):
+    for ch in (dashboard, history):
         if ch is None:
             continue
         p = ch.permissions_for(me)
         if not (p.view_channel and p.send_messages and p.embed_links):
-            await interaction.followup.send(
-                f"❌ Je n'ai pas les droits **Voir le salon**, **Envoyer des messages** et **Intégrer des liens** "
-                f"dans {ch.mention}.", ephemeral=True)
+            await interaction.followup.send(tr(lang, "ch_perm", ch=ch.mention), ephemeral=True)
             return
-    g = await get_guild(interaction.guild_id)
     if g.get("channel_id") != dashboard.id:        # nouveau salon : on repart de zéro côté affichage
         old = interaction.guild.get_channel(g.get("channel_id")) if g.get("channel_id") else None
         s = st(g)
@@ -1008,78 +1214,90 @@ async def cfg_salons(interaction: discord.Interaction, dashboard: discord.TextCh
         await adb("UPDATE guilds SET dashboard_id = NULL, roster_ids = NULL WHERE guild_id = ?",
                   (interaction.guild_id,))
     await adb("UPDATE guilds SET channel_id = ?, history_channel_id = ? WHERE guild_id = ?",
-              (dashboard.id, historique.id if historique else None, interaction.guild_id))
-    txt = f"✅ Tableau de bord : {dashboard.mention}"
-    txt += f"\n✅ Historique : {historique.mention}" if historique else "\nℹ️ Pas de salon d'historique (alertes et connexions désactivées)."
+              (dashboard.id, history.id if history else None, interaction.guild_id))
+    txt = tr(lang, "ch_dash", ch=dashboard.mention)
+    txt += tr(lang, "ch_hist", ch=history.mention) if history else tr(lang, "ch_nohist")
     await interaction.followup.send(txt, ephemeral=True)
 
 
-@config_group.command(name="fuseau", description="Définir le fuseau horaire (heures affichées et bilans).")
-@app_commands.describe(nom="Ex : Europe/Paris, America/Montreal, Europe/Brussels")
-@app_commands.autocomplete(nom=ac_tz)
-async def cfg_fuseau(interaction: discord.Interaction, nom: str):
+@config_group.command(name="timezone", description="Set the time zone (displayed times and recaps).")
+@app_commands.describe(name="E.g. Europe/Paris, America/New_York, Europe/London")
+@app_commands.autocomplete(name=ac_tz)
+async def cfg_timezone(interaction: discord.Interaction, name: str):
     await interaction.response.defer(ephemeral=True)
-    if nom not in TZ_NAMES:
-        await interaction.followup.send("❌ Fuseau inconnu. Commence à taper (ex : `Europe/Par`) et choisis dans la liste.",
-                                        ephemeral=True)
+    lang = await lang_of(interaction.guild_id)
+    if name not in TZ_NAMES:
+        await interaction.followup.send(tr(lang, "tz_unknown"), ephemeral=True)
         return
-    await adb("UPDATE guilds SET tz = ? WHERE guild_id = ?", (nom, interaction.guild_id))
-    await interaction.followup.send(f"✅ Fuseau horaire réglé sur **{nom}**.", ephemeral=True)
+    await get_guild(interaction.guild_id)
+    await adb("UPDATE guilds SET tz = ? WHERE guild_id = ?", (name, interaction.guild_id))
+    await interaction.followup.send(tr(lang, "tz_set", tz=name), ephemeral=True)
 
 
-@config_group.command(name="serveur-ajouter", description="Ajouter un serveur de jeu à surveiller.")
-@app_commands.describe(nom="Nom affiché (ex : Ragnarok)", ip="IP ou nom de domaine du serveur",
-                       port="Port de REQUÊTE (query) du serveur, ex : 27015")
-async def cfg_add(interaction: discord.Interaction, nom: app_commands.Range[str, 1, 32],
+@config_group.command(name="language", description="Choose the bot's language for this Discord server.")
+@app_commands.describe(language="English or Français")
+@app_commands.choices(language=[app_commands.Choice(name=n, value=c) for c, n in LANGS.items()])
+async def cfg_language(interaction: discord.Interaction, language: app_commands.Choice[str]):
+    await interaction.response.defer(ephemeral=True)
+    await get_guild(interaction.guild_id)
+    await adb("UPDATE guilds SET lang = ? WHERE guild_id = ?", (language.value, interaction.guild_id))
+    gstate.pop(interaction.guild_id, None)           # le prochain relevé réécrit les messages dans la nouvelle langue
+    await interaction.followup.send(tr(language.value, "lang_set", name=LANGS[language.value]), ephemeral=True)
+
+
+@config_group.command(name="add-server", description="Add a game server to monitor.")
+@app_commands.describe(name="Display name (e.g. Ragnarok)", ip="Server IP or domain name",
+                       port="Server QUERY port, e.g. 27015")
+async def cfg_add(interaction: discord.Interaction, name: app_commands.Range[str, 1, 32],
                   ip: app_commands.Range[str, 3, 253], port: app_commands.Range[int, 1024, 65535]):
     await interaction.response.defer(ephemeral=True)
-    gid, nom, ip = interaction.guild_id, nom.strip(), ip.strip().lower()
+    gid, name, ip = interaction.guild_id, name.strip(), ip.strip().lower()
     g = await get_guild(gid)
+    lang = g["lang"]
     rows = (await adb("SELECT name FROM servers WHERE guild_id = ?", (gid,), fetch="all")) or []
     limit = feat(g, "max_servers")
     if len(rows) >= limit:
-        up = f"\n⭐ Passe en **Premium** pour aller jusqu'à {PLANS['premium']['max_servers']} serveurs : {PREMIUM_URL}" if g["plan"] != "premium" else ""
-        await interaction.followup.send(f"❌ Limite atteinte ({limit} serveurs pour l'offre {PLANS[g['plan']]['label']}).{up}",
+        up = tr(lang, "add_up", n=PLANS["premium"]["max_servers"], url=PREMIUM_URL) if g["plan"] != "premium" else ""
+        await interaction.followup.send(tr(lang, "add_limit", limit=limit, plan=plan_label(lang, g["plan"]), up=up),
                                         ephemeral=True)
         return
-    if any(r[0].lower() == nom.lower() for r in rows):
-        await interaction.followup.send(f"❌ Un serveur nommé **{nm(nom)}** existe déjà.", ephemeral=True)
+    if any(r[0].lower() == name.lower() for r in rows):
+        await interaction.followup.send(tr(lang, "add_exists", name=nm(name)), ephemeral=True)
         return
     try:
         await asyncio.to_thread(resolve_public, ip)
     except (ValueError, OSError) as exc:
-        await interaction.followup.send(f"❌ Adresse refusée : {exc}. Utilise l'IP publique ou le domaine de ton serveur.",
-                                        ephemeral=True)
+        await interaction.followup.send(tr(lang, "add_refused", err=exc), ephemeral=True)
         return
-    await adb("INSERT INTO servers (guild_id, name, host, port, status) VALUES (?, ?, ?, ?, 'Inconnu') "
-              "ON CONFLICT(guild_id, name) DO NOTHING", (gid, nom, ip, port))
+    await adb("INSERT INTO servers (guild_id, name, host, port, status) VALUES (?, ?, ?, ?, 'unknown') "
+              "ON CONFLICT(guild_id, name) DO NOTHING", (gid, name, ip, port))
     test = await asyncio.to_thread(query_server, ip, port)
     if test["online"]:
-        msg = f"✅ **{nm(nom)}** ajouté — serveur joignable ({len(test['players'])}/{test['max_players']} joueurs)."
+        msg = tr(lang, "add_ok", name=nm(name), c=len(test["players"]), m=test["max_players"])
     else:
-        msg = (f"⚠️ **{nm(nom)}** ajouté, mais il ne répond pas pour l'instant. Vérifie que tu as bien mis le "
-               f"**port de requête** (query port, souvent différent du port de jeu) et qu'il n'est pas bloqué par un pare-feu.")
+        msg = tr(lang, "add_noresp", name=nm(name))
     await interaction.followup.send(msg, ephemeral=True)
 
 
-@config_group.command(name="serveur-retirer", description="Retirer un serveur de jeu.")
-@app_commands.describe(nom="Nom du serveur")
-@app_commands.autocomplete(nom=ac_my_servers)
-async def cfg_remove(interaction: discord.Interaction, nom: str):
+@config_group.command(name="remove-server", description="Remove a game server.")
+@app_commands.describe(name="Server name")
+@app_commands.autocomplete(name=ac_my_servers)
+async def cfg_remove(interaction: discord.Interaction, name: str):
     await interaction.response.defer(ephemeral=True)
+    lang = await lang_of(interaction.guild_id)
     n = await adb("DELETE FROM servers WHERE guild_id = ? AND LOWER(name) = LOWER(?)",
-                  (interaction.guild_id, nom.strip()), fetch="rowcount")
+                  (interaction.guild_id, name.strip()), fetch="rowcount")
     if n:
-        for key in [k for k in previous_players if k[0] == interaction.guild_id and k[1].lower() == nom.strip().lower()]:
+        for key in [k for k in previous_players if k[0] == interaction.guild_id and k[1].lower() == name.strip().lower()]:
             forget_server(*key)
-    await interaction.followup.send(f"🗑️ **{nm(nom)}** retiré." if n else f"❌ Aucun serveur nommé **{nm(nom)}**.",
-                                    ephemeral=True)
+    await interaction.followup.send(tr(lang, "rm_ok" if n else "rm_none", name=nm(name)), ephemeral=True)
 
 
-@config_group.command(name="etat", description="Voir la configuration et l'état des serveurs.")
-async def cfg_etat(interaction: discord.Interaction):
+@config_group.command(name="status", description="Show the configuration and the state of your servers.")
+async def cfg_status(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     g = await get_guild(interaction.guild_id)
+    lang = g["lang"]
     guild = interaction.guild
     rows = (await adb("SELECT name, host, port, status FROM servers WHERE guild_id = ? ORDER BY name",
                       (g["guild_id"],), fetch="all")) or []
@@ -1088,158 +1306,168 @@ async def cfg_etat(interaction: discord.Interaction):
     def chan(cid):
         ch = guild.get_channel(cid) if cid else None
         if not ch:
-            return "❌ non défini"
-        return f"{ch.mention} " + ("✅" if can_write(ch) else "⚠️ droits manquants")
+            return tr(lang, "status_undefined")
+        return f"{ch.mention} " + ("✅" if can_write(ch) else tr(lang, "status_noperm"))
 
-    icon = {"En ligne": "🟢", "Hors ligne": "🔴"}
-    lines = [f"{icon.get(st_, '⚪')} **{nm(n)}** — `{h}:{p}`" for n, h, p, st_ in rows] or ["*Aucun serveur configuré*"]
-    embed = discord.Embed(title=f"⚙️ Configuration de {BRAND}", color=discord.Color.blurple())
-    embed.add_field(name="Offre", value=f"**{plan['label']}** • {len(rows)}/{plan['max_servers']} serveurs", inline=False)
-    embed.add_field(name="Salons", value=f"Dashboard : {chan(g['channel_id'])}\nHistorique : {chan(g['history_channel_id'])}", inline=False)
-    embed.add_field(name="Fuseau horaire", value=g["tz"] or DEFAULT_TZ, inline=False)
-    embed.add_field(name="Serveurs de jeu", value="\n".join(lines)[:1024], inline=False)
+    icon = {ST_ON: "🟢", ST_OFF: "🔴"}
+    lines = [f"{icon.get(norm_status(st_), '⚪')} **{nm(n)}** — `{h}:{p}`" for n, h, p, st_ in rows] \
+        or [tr(lang, "status_noservers")]
+    embed = discord.Embed(title=tr(lang, "status_title", brand=BRAND), color=discord.Color.blurple())
+    embed.add_field(name=tr(lang, "status_plan"),
+                    value=tr(lang, "status_plan_val", plan=plan_label(lang, g["plan"]), n=len(rows),
+                             max=plan["max_servers"]), inline=False)
+    embed.add_field(name=tr(lang, "status_channels"),
+                    value=tr(lang, "status_channels_val", d=chan(g["channel_id"]), h=chan(g["history_channel_id"])),
+                    inline=False)
+    embed.add_field(name=tr(lang, "status_tz"), value=g["tz"] or DEFAULT_TZ, inline=False)
+    embed.add_field(name=tr(lang, "status_lang"), value=LANGS.get(lang, lang), inline=False)
+    embed.add_field(name=tr(lang, "status_servers"), value="\n".join(lines)[:1024], inline=False)
     if g["plan"] != "premium":
-        embed.add_field(name="⭐ Premium", value="Fiche des joueurs, alertes raid, bilans quotidiens/hebdo, "
-                                                 f"plus de serveurs. {PREMIUM_URL}".strip(), inline=False)
+        embed.add_field(name=tr(lang, "status_premium"),
+                        value=tr(lang, "status_premium_val", url=PREMIUM_URL).strip(), inline=False)
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 bot.tree.add_command(config_group)
 
 # ======================================================================================
-# COMMANDES : /blacklist et /tribu
+# COMMANDES : /blacklist et /tribe
 # ======================================================================================
-blacklist_group = admin_group("blacklist", "Gérer la liste des joueurs surveillés")
+blacklist_group = admin_group("blacklist", "Manage the list of watched players")
 
 
-@blacklist_group.command(name="ajouter", description="Ajoute un joueur à la blacklist (alerte à sa connexion).")
-@app_commands.describe(joueur="Pseudo exact du joueur")
-async def bl_add(interaction: discord.Interaction, joueur: app_commands.Range[str, 1, 64]):
+@blacklist_group.command(name="add", description="Add a player to the blacklist (alert when they connect).")
+@app_commands.describe(player="Exact player name")
+async def bl_add(interaction: discord.Interaction, player: app_commands.Range[str, 1, 64]):
     await interaction.response.defer(ephemeral=True)
-    gid, joueur = interaction.guild_id, joueur.strip()
+    gid, player = interaction.guild_id, player.strip()
     g = await get_guild(gid)
+    lang = g["lang"]
     row = await adb("SELECT COUNT(*) FROM blacklist WHERE guild_id = ?", (gid,), fetch="one")
     if row and row[0] >= feat(g, "max_blacklist"):
-        up = f"\n⭐ L'offre **Premium** permet jusqu'à {PLANS['premium']['max_blacklist']} joueurs : {PREMIUM_URL}" if g["plan"] != "premium" else ""
-        await interaction.followup.send(f"❌ Blacklist pleine ({feat(g, 'max_blacklist')} joueurs max).{up}", ephemeral=True)
+        up = tr(lang, "bl_up", n=PLANS["premium"]["max_blacklist"], url=PREMIUM_URL) if g["plan"] != "premium" else ""
+        await interaction.followup.send(tr(lang, "bl_full", n=feat(g, "max_blacklist"), up=up), ephemeral=True)
         return
     await adb("INSERT INTO blacklist (guild_id, player_name) VALUES (?, ?) ON CONFLICT(guild_id, player_name) DO NOTHING",
-              (gid, joueur))
-    await interaction.followup.send(f"✅ 🟥 **{nm(joueur)}** ajouté à la blacklist.", ephemeral=True)
+              (gid, player))
+    await interaction.followup.send(tr(lang, "bl_added", p=nm(player)), ephemeral=True)
 
 
-@blacklist_group.command(name="retirer", description="Retire un joueur de la blacklist.")
-@app_commands.describe(joueur="Pseudo du joueur")
-async def bl_remove(interaction: discord.Interaction, joueur: str):
+@blacklist_group.command(name="remove", description="Remove a player from the blacklist.")
+@app_commands.describe(player="Player name")
+async def bl_remove(interaction: discord.Interaction, player: str):
     await interaction.response.defer(ephemeral=True)
+    lang = await lang_of(interaction.guild_id)
     n = await adb("DELETE FROM blacklist WHERE guild_id = ? AND LOWER(player_name) = LOWER(?)",
-                  (interaction.guild_id, joueur.strip()), fetch="rowcount")
-    await interaction.followup.send(f"🗑️ **{nm(joueur)}** retiré de la blacklist." if n
-                                    else f"❌ **{nm(joueur)}** n'est pas dans la blacklist.", ephemeral=True)
+                  (interaction.guild_id, player.strip()), fetch="rowcount")
+    await interaction.followup.send(tr(lang, "bl_removed" if n else "bl_notin", p=nm(player)), ephemeral=True)
 
 
-@blacklist_group.command(name="liste", description="Affiche la blacklist.")
+@blacklist_group.command(name="list", description="Show the blacklist.")
 async def bl_list(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
+    lang = await lang_of(interaction.guild_id)
     rows = (await adb("SELECT player_name FROM blacklist WHERE guild_id = ? ORDER BY player_name",
                       (interaction.guild_id,), fetch="all")) or []
     if not rows:
-        await interaction.followup.send("📋 La blacklist est vide.", ephemeral=True)
+        await interaction.followup.send(tr(lang, "bl_empty"), ephemeral=True)
         return
     desc = "\n".join(f"🟥 `{r[0].replace('`', '')}`" for r in rows)[:4000]
-    await interaction.followup.send(embed=discord.Embed(title="🏴‍☠️ Joueurs blacklistés", description=desc,
+    await interaction.followup.send(embed=discord.Embed(title=tr(lang, "bl_title"), description=desc,
                                                         color=discord.Color.dark_red()), ephemeral=True)
 
 
 bot.tree.add_command(blacklist_group)
 
-tribu_group = admin_group("tribu", "Associer des joueurs à des tribus")
+tribe_group = admin_group("tribe", "Link players to tribes")
 
 
-@tribu_group.command(name="definir", description="Associe un joueur à une tribu.")
-@app_commands.describe(joueur="Pseudo du joueur", tribu="Nom de la tribu")
-async def tr_set(interaction: discord.Interaction, joueur: app_commands.Range[str, 1, 64],
-                 tribu: app_commands.Range[str, 1, 32]):
+@tribe_group.command(name="set", description="Link a player to a tribe.")
+@app_commands.describe(player="Player name", tribe="Tribe name")
+async def tr_set(interaction: discord.Interaction, player: app_commands.Range[str, 1, 64],
+                 tribe: app_commands.Range[str, 1, 32]):
     await interaction.response.defer(ephemeral=True)
     gid = interaction.guild_id
+    lang = await lang_of(gid)
     row = await adb("SELECT COUNT(*) FROM player_tribes WHERE guild_id = ?", (gid,), fetch="one")
-    exists = await adb("SELECT 1 FROM player_tribes WHERE guild_id = ? AND player_name = ?", (gid, joueur.strip()), fetch="one")
+    exists = await adb("SELECT 1 FROM player_tribes WHERE guild_id = ? AND player_name = ?", (gid, player.strip()), fetch="one")
     if row and row[0] >= MAX_LIST and not exists:
-        await interaction.followup.send(f"❌ Limite de {MAX_LIST} affiliations atteinte.", ephemeral=True)
+        await interaction.followup.send(tr(lang, "tr_limit", n=MAX_LIST), ephemeral=True)
         return
     await adb("INSERT INTO player_tribes (guild_id, player_name, tribe_name) VALUES (?, ?, ?) "
               "ON CONFLICT(guild_id, player_name) DO UPDATE SET tribe_name = excluded.tribe_name",
-              (gid, joueur.strip(), tribu.strip()))
-    await interaction.followup.send(f"🏷️ **{nm(joueur)}** → tribu **[{nm(tribu)}]**.", ephemeral=True)
+              (gid, player.strip(), tribe.strip()))
+    await interaction.followup.send(tr(lang, "tr_set", p=nm(player), t=nm(tribe)), ephemeral=True)
 
 
-@tribu_group.command(name="retirer", description="Retire l'affiliation de tribu d'un joueur.")
-@app_commands.describe(joueur="Pseudo du joueur")
-async def tr_remove(interaction: discord.Interaction, joueur: str):
+@tribe_group.command(name="remove", description="Remove a player's tribe affiliation.")
+@app_commands.describe(player="Player name")
+async def tr_remove(interaction: discord.Interaction, player: str):
     await interaction.response.defer(ephemeral=True)
+    lang = await lang_of(interaction.guild_id)
     n = await adb("DELETE FROM player_tribes WHERE guild_id = ? AND LOWER(player_name) = LOWER(?)",
-                  (interaction.guild_id, joueur.strip()), fetch="rowcount")
-    await interaction.followup.send(f"🗑️ Affiliation de **{nm(joueur)}** retirée." if n
-                                    else f"❌ Aucune affiliation pour **{nm(joueur)}**.", ephemeral=True)
+                  (interaction.guild_id, player.strip()), fetch="rowcount")
+    await interaction.followup.send(tr(lang, "tr_removed" if n else "tr_none", p=nm(player)), ephemeral=True)
 
 
-@tribu_group.command(name="liste", description="Affiche les tribus et leurs membres.")
+@tribe_group.command(name="list", description="Show tribes and their members.")
 async def tr_list(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
+    lang = await lang_of(interaction.guild_id)
     rows = (await adb("SELECT tribe_name, player_name FROM player_tribes WHERE guild_id = ? ORDER BY tribe_name",
                       (interaction.guild_id,), fetch="all")) or []
     if not rows:
-        await interaction.followup.send("📋 Aucune affiliation enregistrée.", ephemeral=True)
+        await interaction.followup.send(tr(lang, "tr_empty"), ephemeral=True)
         return
     grouped = {}
     for t, p in rows:
         grouped.setdefault(t, []).append(p)
-    embed = discord.Embed(title="🛡️ Répertoire des tribus", color=discord.Color.orange())
+    embed = discord.Embed(title=tr(lang, "tr_title"), color=discord.Color.orange())
     for t, members in list(grouped.items())[:25]:
         embed.add_field(name=f"[{t}]"[:256], value=", ".join(f"`{m.replace('`', '')}`" for m in members)[:1024], inline=False)
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-bot.tree.add_command(tribu_group)
+bot.tree.add_command(tribe_group)
 
 # ======================================================================================
-# COMMANDES : /donnees (confidentialité)
+# COMMANDES : /data (confidentialité)
 # ======================================================================================
-data_group = admin_group("donnees", "Gérer les données enregistrées sur les joueurs")
+data_group = admin_group("data", "Manage the data stored about players")
 
 
-@data_group.command(name="joueur-supprimer", description="Supprime toutes les données d'un joueur (historique, temps de jeu, tribu).")
-@app_commands.describe(joueur="Pseudo exact du joueur")
-async def data_player(interaction: discord.Interaction, joueur: str):
+@data_group.command(name="delete-player", description="Delete all data of a player (history, playtime, tribe).")
+@app_commands.describe(player="Exact player name")
+async def data_player(interaction: discord.Interaction, player: str):
     await interaction.response.defer(ephemeral=True)
-    gid, name = interaction.guild_id, joueur.strip()
+    gid, name = interaction.guild_id, player.strip()
+    lang = await lang_of(gid)
     total = 0
     for table in ("history", "playtime", "player_tribes"):
         total += await adb(f"DELETE FROM {table} WHERE guild_id = ? AND LOWER(player_name) = LOWER(?)",
                            (gid, name), fetch="rowcount") or 0
-    await interaction.followup.send(f"🗑️ Données de **{nm(name)}** supprimées ({total} enregistrement(s)). "
-                                    f"Si le joueur est encore connecté, il sera de nouveau enregistré à la prochaine minute.",
-                                    ephemeral=True)
+    await interaction.followup.send(tr(lang, "data_deleted", p=nm(name), n=total), ephemeral=True)
 
 
-@data_group.command(name="reinitialiser", description="Efface tout l'historique et les temps de jeu de ce serveur Discord.")
-@app_commands.describe(confirmation="Tape SUPPRIMER pour confirmer")
+@data_group.command(name="reset", description="Erase all history and playtime of this Discord server.")
+@app_commands.describe(confirmation="Type DELETE to confirm")
 async def data_reset(interaction: discord.Interaction, confirmation: str):
     await interaction.response.defer(ephemeral=True)
-    if confirmation.strip() != "SUPPRIMER":
-        await interaction.followup.send("❌ Tape exactement `SUPPRIMER` pour confirmer.", ephemeral=True)
+    lang = await lang_of(interaction.guild_id)
+    if confirmation.strip().upper() not in {tr(c, "data_word") for c in LANGS}:
+        await interaction.followup.send(tr(lang, "data_confirm", word=tr(lang, "data_word")), ephemeral=True)
         return
     for table in ("history", "playtime"):
         await adb(f"DELETE FROM {table} WHERE guild_id = ?", (interaction.guild_id,))
-    await interaction.followup.send("🗑️ Historique et temps de jeu effacés.", ephemeral=True)
+    await interaction.followup.send(tr(lang, "data_reset_ok"), ephemeral=True)
 
 
 bot.tree.add_command(data_group)
 
 # ======================================================================================
-# COMMANDES : PUBLIQUES (/infos /historique /stats /aide)
+# COMMANDES : PUBLIQUES (/info /history /stats /help)
 # ======================================================================================
-async def ac_joueur(interaction: discord.Interaction, current: str):
+async def ac_player(interaction: discord.Interaction, current: str):
     try:
         rows = await adb(f"SELECT DISTINCT player_name FROM history WHERE guild_id = ? AND {like_clause('player_name')} LIMIT 25",
                          (interaction.guild_id, like(current)), fetch="all")
@@ -1248,51 +1476,53 @@ async def ac_joueur(interaction: discord.Interaction, current: str):
         return []
 
 
-async def ac_serveur(interaction: discord.Interaction, current: str):
+async def ac_map(interaction: discord.Interaction, current: str):
     return await ac_my_servers(interaction, current)
 
 
-@bot.tree.command(name="infos", description="Temps de jeu total et par map d'un joueur.")
+@bot.tree.command(name="info", description="Total playtime and playtime per map of a player.")
 @app_commands.guild_only()
-@app_commands.describe(joueur="Le pseudo du joueur recherché")
-@app_commands.autocomplete(joueur=ac_joueur)
-async def infos_slash(interaction: discord.Interaction, joueur: str):
+@app_commands.describe(player="The player you're looking for")
+@app_commands.autocomplete(player=ac_player)
+async def info_slash(interaction: discord.Interaction, player: str):
     g = await get_guild(interaction.guild_id)
+    lang = g["lang"]
     if g.get("history_channel_id") and interaction.channel_id != g["history_channel_id"]:
-        await interaction.response.send_message(f"❌ Utilise cette commande dans <#{g['history_channel_id']}> !", ephemeral=True)
+        await interaction.response.send_message(tr(lang, "use_channel", id=g["history_channel_id"]), ephemeral=True)
         return
     await interaction.response.defer()
     gid = interaction.guild_id
     best = await adb(f"SELECT player_name, SUM(seconds) AS t FROM playtime WHERE guild_id = ? AND {like_clause('player_name')} "
-                     "GROUP BY player_name ORDER BY t DESC LIMIT 1", (gid, like(joueur)), fetch="one")
+                     "GROUP BY player_name ORDER BY t DESC LIMIT 1", (gid, like(player)), fetch="one")
     if not best:
-        await interaction.followup.send(f"❌ Aucun temps de jeu enregistré pour **{nm(joueur)}**.")
+        await interaction.followup.send(tr(lang, "info_none", p=nm(player)))
         return
-    player, total_sec = best
+    name, total_sec = best
     rows = (await adb("SELECT map_name, SUM(seconds) FROM playtime WHERE guild_id = ? AND player_name = ? "
-                      "GROUP BY map_name ORDER BY 2 DESC", (gid, player), fetch="all")) or []
+                      "GROUP BY map_name ORDER BY 2 DESC", (gid, name), fetch="all")) or []
     bl_rows = await adb("SELECT player_name FROM blacklist WHERE guild_id = ?", (gid,), fetch="all")
     tr_rows = await adb("SELECT player_name, tribe_name FROM player_tribes WHERE guild_id = ?", (gid,), fetch="all")
     blacklist = {r[0].lower() for r in bl_rows or []}
     tribes = {r[0].lower(): r[1] for r in tr_rows or []}
-    is_b = is_blacklisted(player, blacklist)
-    embed = discord.Embed(title=f"📊 Fiche joueur : {'🟥 ' if is_b else ''}{nm(player)}{tribe_tag(player, tribes)}",
+    is_b = is_blacklisted(name, blacklist)
+    embed = discord.Embed(title=tr(lang, "info_title", bl="🟥 " if is_b else "", p=nm(name), tag=tribe_tag(name, tribes)),
                           color=discord.Color.dark_red() if is_b else discord.Color.blue())
-    embed.add_field(name="⏱️ Temps de jeu total", value=f"**{fmt_duration(total_sec)}**", inline=False)
-    embed.add_field(name="🗺️ Répartition par map",
+    embed.add_field(name=tr(lang, "info_total"), value=f"**{fmt_duration(total_sec)}**", inline=False)
+    embed.add_field(name=tr(lang, "info_maps"),
                     value="\n".join(f"• **{nm(m)}** : `{fmt_duration(x)}`" for m, x in rows if x)[:1024] or "—", inline=False)
     await interaction.followup.send(embed=embed)
 
 
-@bot.tree.command(name="historique", description="Dernière connexion d'un joueur sur chaque map (ou qui est passé sur une map).")
+@bot.tree.command(name="history", description="Last connection of a player on each map (or who played on a map).")
 @app_commands.guild_only()
-@app_commands.describe(joueur="Pseudo (ou début de pseudo)", serveur="Nom de la map")
-@app_commands.autocomplete(joueur=ac_joueur, serveur=ac_serveur)
-async def historique_slash(interaction: discord.Interaction, joueur: str = None, serveur: str = None):
+@app_commands.describe(player="Player name (or the start of it)", map_name="Map / server name")
+@app_commands.rename(map_name="map")
+@app_commands.autocomplete(player=ac_player, map_name=ac_map)
+async def history_slash(interaction: discord.Interaction, player: str = None, map_name: str = None):
     await interaction.response.defer(ephemeral=True)
     gid = interaction.guild_id
     g = await get_guild(gid)
-    tz = tz_of(g)
+    lang, tz = g["lang"], tz_of(g)
     bl_rows = await adb("SELECT player_name FROM blacklist WHERE guild_id = ?", (gid,), fetch="all")
     tr_rows = await adb("SELECT player_name, tribe_name FROM player_tribes WHERE guild_id = ?", (gid,), fetch="all")
     blacklist = {r[0].lower() for r in bl_rows or []}
@@ -1300,16 +1530,16 @@ async def historique_slash(interaction: discord.Interaction, joueur: str = None,
 
     query = "SELECT player_name, map_name, last_seen FROM history WHERE guild_id = ?"
     params = [gid]
-    if joueur:
+    if player:
         query += f" AND {like_clause('player_name')}"
-        params.append(like(joueur.strip()))
-    if serveur:
+        params.append(like(player.strip()))
+    if map_name:
         query += f" AND {like_clause('map_name')}"
-        params.append(like(serveur.strip()))
+        params.append(like(map_name.strip()))
     query += " ORDER BY last_seen DESC LIMIT 400"
     rows = (await adb(query, tuple(params), fetch="all")) or []
     if not rows:
-        await interaction.followup.send("❌ Aucun résultat. Vérifie l'orthographe (un début de pseudo suffit).", ephemeral=True)
+        await interaction.followup.send(tr(lang, "hist_none"), ephemeral=True)
         return
 
     now = datetime.now(tz)
@@ -1317,17 +1547,18 @@ async def historique_slash(interaction: discord.Interaction, joueur: str = None,
 
     def seen(p, m, ls):
         if (m, p) in live:
-            return "🟢", "**en ligne maintenant**"
+            return "🟢", tr(lang, "hist_online")
         dt = parse_ts(ls, tz)
         if not dt:
             return "▫️", str(ls)
-        return "▫️", f"**{fmt_ago((now - dt).total_seconds())}** · {dt.strftime('%d/%m à %H:%M')}"
+        return "▫️", tr(lang, "hist_when", ago=fmt_ago((now - dt).total_seconds(), lang),
+                        date=dt.strftime("%d %b"), time=dt.strftime("%H:%M"))
 
     def who(p):
         return f"{'🟥 ' if is_blacklisted(p, blacklist) else ''}**{nm(p)}**{tribe_tag(p, tribes)}"
 
     blocks = []
-    if joueur or not serveur:
+    if player or not map_name:
         by_player = {}
         for p, m, ls in rows:
             by_player.setdefault(p, []).append((m, ls))
@@ -1338,68 +1569,63 @@ async def historique_slash(interaction: discord.Interaction, joueur: str = None,
                 dot, txt = seen(p, m, ls)
                 lines.append(f"└ {dot} {nm(m)} — {txt}")
             if len(maps) > cap:
-                lines.append(f"└ *+{len(maps) - cap} autre(s) map(s)*")
+                lines.append(tr(lang, "hist_more_maps", n=len(maps) - cap))
             blocks.append("\n".join(lines))
-        count = f"{len(by_player)} joueur(s)"
+        count = tr(lang, "hist_n_players", n=len(by_player))
     else:
         by_map = {}
         for p, m, ls in rows:
             by_map.setdefault(m, []).append((p, ls))
         for m, plist in by_map.items():
-            lines = [f"🗺️ **{nm(m)}** — {len(plist)} joueur(s)"]
+            lines = [tr(lang, "hist_map_head", m=nm(m), n=len(plist))]
             for p, ls in plist[:12]:
                 dot, txt = seen(p, m, ls)
                 lines.append(f"└ {dot} {who(p)} — {txt}")
             if len(plist) > 12:
-                lines.append(f"└ *+{len(plist) - 12} autre(s)*")
+                lines.append(tr(lang, "hist_more", n=len(plist) - 12))
             blocks.append("\n".join(lines))
-        count = f"{len(by_map)} map(s)"
+        count = tr(lang, "hist_n_maps", n=len(by_map))
 
-    crit = " • ".join(x for x in (f"joueur « {nm(joueur)} »" if joueur else None,
-                                  f"map « {nm(serveur)} »" if serveur else None) if x)
-    embed = discord.Embed(title="🔍 Historique des connexions",
-                          description=f"*{crit or 'dernières connexions'}* — {count}\n\n{pack_blocks(blocks)}",
+    crit = " • ".join(x for x in (tr(lang, "hist_crit_player", p=nm(player)) if player else None,
+                                  tr(lang, "hist_crit_map", m=nm(map_name)) if map_name else None) if x)
+    embed = discord.Embed(title=tr(lang, "hist_title"),
+                          description=f"*{crit or tr(lang, 'hist_crit_default')}* — {count}\n\n{pack_blocks(blocks, lang)}",
                           color=discord.Color.blue())
-    embed.set_footer(text=f"Heures en {tz.key} • 🟢 en ligne • ▫️ hors ligne • 🟥 blacklist")
+    embed.set_footer(text=tr(lang, "hist_footer", tz=tz.key))
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-@bot.tree.command(name="stats", description="Statistiques de ce serveur Discord.")
+@bot.tree.command(name="stats", description="Statistics of this Discord server.")
 @app_commands.guild_only()
 async def stats_slash(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     gid = interaction.guild_id
+    lang = await lang_of(gid)
     row = await adb("SELECT (SELECT COUNT(DISTINCT player_name) FROM history WHERE guild_id = ?), "
                     "(SELECT COUNT(*) FROM blacklist WHERE guild_id = ?), "
                     "(SELECT COUNT(*) FROM player_tribes WHERE guild_id = ?), "
                     "(SELECT COUNT(*) FROM servers WHERE guild_id = ?)", (gid, gid, gid, gid), fetch="one")
     u, b, t, s = row if row else (0, 0, 0, 0)
-    embed = discord.Embed(title="📊 Statistiques", color=discord.Color.green())
-    embed.add_field(name="👥 Joueurs uniques enregistrés", value=str(u), inline=False)
-    embed.add_field(name="🖥️ Serveurs de jeu suivis", value=str(s), inline=False)
-    embed.add_field(name="🟥 Joueurs blacklistés", value=str(b), inline=False)
-    embed.add_field(name="🛡️ Affiliations de tribu", value=str(t), inline=False)
+    embed = discord.Embed(title=tr(lang, "stats_title"), color=discord.Color.green())
+    embed.add_field(name=tr(lang, "stats_unique"), value=str(u), inline=False)
+    embed.add_field(name=tr(lang, "stats_servers"), value=str(s), inline=False)
+    embed.add_field(name=tr(lang, "stats_bl"), value=str(b), inline=False)
+    embed.add_field(name=tr(lang, "stats_tribes"), value=str(t), inline=False)
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-@bot.tree.command(name="aide", description="Liste des commandes et liens utiles.")
-async def aide_slash(interaction: discord.Interaction):
-    embed = discord.Embed(title=f"❓ Aide — {BRAND}", color=discord.Color.blue(), description=(
-        "**Pour tout le monde**\n"
-        "`/historique` — dernière connexion d'un joueur sur chaque map\n"
-        "`/infos` — temps de jeu d'un joueur\n"
-        "`/stats` — statistiques du serveur Discord\n\n"
-        "**Pour les administrateurs** (permission *Gérer le serveur*)\n"
-        "`/config salons` • `/config serveur-ajouter` • `/config serveur-retirer` • `/config fuseau` • `/config etat`\n"
-        "`/blacklist ajouter|retirer|liste` • `/tribu definir|retirer|liste`\n"
-        "`/donnees joueur-supprimer` • `/donnees reinitialiser`"))
+@bot.tree.command(name="help", description="List of commands and useful links.")
+async def help_slash(interaction: discord.Interaction):
+    lang = await lang_of(interaction.guild_id)
+    embed = discord.Embed(title=tr(lang, "help_title", brand=BRAND), color=discord.Color.blue(),
+                          description=tr(lang, "help_desc"))
     links = []
     if SITE_URL:
-        links.append(f"[Site web]({SITE_URL}) • [Confidentialité]({SITE_URL.rstrip('/')}/#confidentialite)")
+        links.append(f"[{tr(lang, 'help_site')}]({SITE_URL}) • [{tr(lang, 'help_privacy')}]({SITE_URL.rstrip('/')}/#confidentialite)")
     if SUPPORT_URL:
-        links.append(f"[Support]({SUPPORT_URL})")
+        links.append(f"[{tr(lang, 'help_support')}]({SUPPORT_URL})")
     if links:
-        embed.add_field(name="Liens", value=" • ".join(links), inline=False)
+        embed.add_field(name=tr(lang, "help_links"), value=" • ".join(links), inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -1409,20 +1635,20 @@ async def aide_slash(interaction: discord.Interaction):
 @bot.command(name="premium")
 @commands.is_owner()
 async def owner_premium(ctx, guild_id: int, plan: str = "premium"):
-    """@Bot premium <id du serveur Discord> <free|premium>"""
+    """@Bot premium <Discord server id> <free|premium>"""
     if plan not in PLANS:
-        await ctx.send(f"Offre inconnue. Choix : {', '.join(PLANS)}")
+        await ctx.send(f"Unknown plan. Choices: {', '.join(PLANS)}")
         return
     await ensure_guild(guild_id)
     await adb("UPDATE guilds SET plan = ? WHERE guild_id = ?", (plan, guild_id))
-    await ctx.send(f"✅ Serveur {guild_id} → offre **{plan}**.")
+    await ctx.send(f"✅ Server {guild_id} → plan **{plan}**.")
 
 
 @bot.command(name="sync")
 @commands.is_owner()
 async def owner_sync(ctx):
     synced = await bot.tree.sync()
-    await ctx.send(f"✅ {len(synced)} commandes synchronisées.")
+    await ctx.send(f"✅ {len(synced)} commands synced.")
 
 
 @bot.command(name="bilan")
@@ -1430,7 +1656,7 @@ async def owner_sync(ctx):
 async def owner_bilan(ctx):
     rows = await adb("SELECT plan, COUNT(*) FROM guilds WHERE left_at IS NULL GROUP BY plan", fetch="all")
     n_srv = await adb("SELECT COUNT(*) FROM servers", fetch="one")
-    await ctx.send(f"📈 Serveurs Discord : {len(bot.guilds)} • par offre : {dict(rows or [])} • serveurs de jeu suivis : {n_srv[0]}")
+    await ctx.send(f"📈 Discord servers: {len(bot.guilds)} • by plan: {dict(rows or [])} • game servers tracked: {n_srv[0]}")
 
 
 # ======================================================================================
