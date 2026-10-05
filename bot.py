@@ -51,9 +51,13 @@ LEFT_GRACE_DAYS = 30                                             # données cons
 MAX_LIST = 500                                                   # taille max blacklist / tribus par serveur Discord
 
 # Offres : modifie librement ces valeurs pour ajuster gratuit / premium.
+# FREE_MODE=1 (par défaut) : tout est gratuit, toutes les fonctions sont ouvertes à tous les serveurs.
+# FREE_MODE=0 : réactive les offres gratuit / premium ci-dessous.
+FREE_MODE = os.environ.get("FREE_MODE", "1") != "0"
 PLANS = {
-    "free": {"label": "Free", "max_servers": int(os.environ.get("FREE_MAX_SERVERS", "3")),
-             "max_blacklist": 10, "roster": False, "summaries": False, "raid": False},
+    "free": {"label": "Free", "max_servers": int(os.environ.get("FREE_MAX_SERVERS", "10" if FREE_MODE else "3")),
+             "max_blacklist": MAX_LIST if FREE_MODE else 10,
+             "roster": FREE_MODE, "summaries": FREE_MODE, "raid": FREE_MODE},
     "premium": {"label": "Premium", "max_servers": int(os.environ.get("PREMIUM_MAX_SERVERS", "30")),
                 "max_blacklist": MAX_LIST, "roster": True, "summaries": True, "raid": True},
 }
@@ -1257,7 +1261,7 @@ async def cfg_add(interaction: discord.Interaction, name: app_commands.Range[str
     rows = (await adb("SELECT name FROM servers WHERE guild_id = ?", (gid,), fetch="all")) or []
     limit = feat(g, "max_servers")
     if len(rows) >= limit:
-        up = tr(lang, "add_up", n=PLANS["premium"]["max_servers"], url=PREMIUM_URL) if g["plan"] != "premium" else ""
+        up = tr(lang, "add_up", n=PLANS["premium"]["max_servers"], url=PREMIUM_URL) if (g["plan"] != "premium" and not FREE_MODE) else ""
         await interaction.followup.send(tr(lang, "add_limit", limit=limit, plan=plan_label(lang, g["plan"]), up=up),
                                         ephemeral=True)
         return
@@ -1322,7 +1326,7 @@ async def cfg_status(interaction: discord.Interaction):
     embed.add_field(name=tr(lang, "status_tz"), value=g["tz"] or DEFAULT_TZ, inline=False)
     embed.add_field(name=tr(lang, "status_lang"), value=LANGS.get(lang, lang), inline=False)
     embed.add_field(name=tr(lang, "status_servers"), value="\n".join(lines)[:1024], inline=False)
-    if g["plan"] != "premium":
+    if g["plan"] != "premium" and not FREE_MODE:
         embed.add_field(name=tr(lang, "status_premium"),
                         value=tr(lang, "status_premium_val", url=PREMIUM_URL).strip(), inline=False)
     await interaction.followup.send(embed=embed, ephemeral=True)
@@ -1345,7 +1349,7 @@ async def bl_add(interaction: discord.Interaction, player: app_commands.Range[st
     lang = g["lang"]
     row = await adb("SELECT COUNT(*) FROM blacklist WHERE guild_id = ?", (gid,), fetch="one")
     if row and row[0] >= feat(g, "max_blacklist"):
-        up = tr(lang, "bl_up", n=PLANS["premium"]["max_blacklist"], url=PREMIUM_URL) if g["plan"] != "premium" else ""
+        up = tr(lang, "bl_up", n=PLANS["premium"]["max_blacklist"], url=PREMIUM_URL) if (g["plan"] != "premium" and not FREE_MODE) else ""
         await interaction.followup.send(tr(lang, "bl_full", n=feat(g, "max_blacklist"), up=up), ephemeral=True)
         return
     await adb("INSERT INTO blacklist (guild_id, player_name) VALUES (?, ?) ON CONFLICT(guild_id, player_name) DO NOTHING",
