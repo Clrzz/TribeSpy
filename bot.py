@@ -382,6 +382,7 @@ def query_server(host, port):
             return {"online": True, "players": names, "max_players": getattr(info, "max_players", 0), "error": None}
         except Exception as exc:
             last_err = str(exc)
+    print(f"[A2S] échec {host}:{port} -> {last_err}", flush=True)
     return {"online": False, "players": [], "max_players": 0, "error": last_err}
 
 
