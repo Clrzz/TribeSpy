@@ -7,16 +7,22 @@ English by default, French optional per Discord server (/config language).
 * Lancement : python bot.py   (variables d'environnement : voir README.md)
 """
 import asyncio
+import hashlib
 import ipaddress
+import json
 import logging
 import os
 import re
+import secrets
 import socket
 import sqlite3
+import time
+from urllib.parse import urlencode, urlsplit
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, available_timezones
 
 import a2s
+import aiohttp
 import discord
 from aiohttp import web
 from discord import app_commands
@@ -277,6 +283,7 @@ STR = {
                          "`/data delete-player` • `/data reset`")},
     "help_links": {"en": "Links", "fr": "Liens"},
     "help_site": {"en": "Website", "fr": "Site web"},
+    "sep": {"en": "\n", "fr": "\n"},
     "help_privacy": {"en": "Privacy", "fr": "Confidentialité"},
     "help_support": {"en": "Support", "fr": "Support"},
 }
@@ -407,6 +414,8 @@ def init_db():
         "CREATE TABLE IF NOT EXISTS history (guild_id BIGINT, player_name TEXT, map_name TEXT, first_seen TEXT, "
         "last_seen TEXT, PRIMARY KEY (guild_id, player_name, map_name))",
         "CREATE INDEX IF NOT EXISTS idx_playtime_gdate ON playtime(guild_id, date)",
+        "CREATE TABLE IF NOT EXISTS web_sessions (token_hash TEXT PRIMARY KEY, user_id BIGINT, username TEXT, "
+        "avatar TEXT, guilds TEXT, expires_at TEXT)",
     ]
     if IS_PG:
         db_execute(f"CREATE SCHEMA IF NOT EXISTS {DB_SCHEMA}")
@@ -422,7 +431,7 @@ def init_db():
     if IS_PG:
         # Sécurité (Supabase expose les tables par une API publique) : RLS activé sans règle = accès API refusé.
         # Le bot se connecte avec le propriétaire des tables, qui n'est pas concerné.
-        for table in ("guilds", "servers", "blacklist", "player_tribes", "playtime", "history"):
+        for table in ("guilds", "servers", "blacklist", "player_tribes", "playtime", "history", "web_sessions"):
             try:
                 db_execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
             except Exception as exc:
@@ -1097,6 +1106,7 @@ async def maintenance():
         cut = utcnow() - timedelta(days=RETENTION_DAYS)
         await adb("DELETE FROM playtime WHERE date < ?", (cut.strftime("%Y-%m-%d"),))
         await adb("DELETE FROM history WHERE last_seen < ?", (cut.isoformat(),))
+        await adb("DELETE FROM web_sessions WHERE expires_at < ?", (utcnow().isoformat(),))
         gone = (utcnow() - timedelta(days=LEFT_GRACE_DAYS)).isoformat()
         rows = (await adb("SELECT guild_id FROM guilds WHERE left_at IS NOT NULL AND left_at < ?", (gone,),
                           fetch="all")) or []
@@ -1204,10 +1214,141 @@ def admin_group(name, description):
 
 
 # ======================================================================================
+# ACTIONS DE CONFIGURATION (partagées entre les commandes Discord et la console web)
+# Chaque action renvoie (ok, [(clé de texte, paramètres), ...]) ; render() met le texte en forme.
+# ======================================================================================
+USER_TEXT_KEYS = {"name", "p", "t"}                # paramètres venant d'un utilisateur : échappés pour Discord
+TZ_NAMES = sorted(available_timezones())
+
+
+def render(lang, parts, web=False):
+    out = []
+    for key, kw in parts:
+        kw2 = {}
+        for k, v in kw.items():
+            if isinstance(v, discord.abc.GuildChannel):
+                v = f"#{v.name}" if web else v.mention
+            elif k in USER_TEXT_KEYS and not web:
+                v = nm(v)
+            kw2[k] = v
+        out.append(tr(lang, key, **kw2))
+    text = "".join(out)
+    if web:                                          # pas de markdown Discord sur le site
+        text = text.replace("**", "").replace("`", "").strip()
+    return text
+
+
+async def core_channels(guild, dashboard, history):
+    g = await get_guild(guild.id)
+    for ch in (dashboard, history):
+        if ch is not None and not can_write(ch):
+            return False, [("ch_perm", {"ch": ch})]
+    if g.get("channel_id") != dashboard.id:        # nouveau salon : on repart de zéro côté affichage
+        old = guild.get_channel(g.get("channel_id")) if g.get("channel_id") else None
+        s = st(g)
+        if old:
+            for mid in s["roster_ids"] + ([s["dashboard_id"]] if s["dashboard_id"] else []):
+                try:
+                    await old.get_partial_message(mid).delete()
+                except discord.HTTPException:
+                    pass
+        gstate.pop(guild.id, None)
+        await adb("UPDATE guilds SET dashboard_id = NULL, roster_ids = NULL WHERE guild_id = ?", (guild.id,))
+    await adb("UPDATE guilds SET channel_id = ?, history_channel_id = ? WHERE guild_id = ?",
+              (dashboard.id, history.id if history else None, guild.id))
+    return True, [("ch_dash", {"ch": dashboard}), ("ch_hist", {"ch": history}) if history else ("ch_nohist", {})]
+
+
+async def core_timezone(gid, name):
+    if name not in TZ_NAMES:
+        return False, [("tz_unknown", {})]
+    await get_guild(gid)
+    await adb("UPDATE guilds SET tz = ? WHERE guild_id = ?", (name, gid))
+    return True, [("tz_set", {"tz": name})]
+
+
+async def core_language(gid, code):
+    await get_guild(gid)
+    await adb("UPDATE guilds SET lang = ? WHERE guild_id = ?", (code, gid))
+    gstate.pop(gid, None)                            # le prochain relevé réécrit les messages dans la nouvelle langue
+    return True, [("lang_set", {"name": LANGS[code]})]
+
+
+async def core_add_server(gid, name, address):
+    name = name.strip()
+    g = await get_guild(gid)
+    lang = g["lang"]
+    rows = (await adb("SELECT name FROM servers WHERE guild_id = ?", (gid,), fetch="all")) or []
+    limit = feat(g, "max_servers")
+    if len(rows) >= limit:
+        up = tr(lang, "add_up", n=PLANS["premium"]["max_servers"], url=PREMIUM_URL) if (g["plan"] != "premium" and not FREE_MODE) else ""
+        return False, [("add_limit", {"limit": limit, "plan": plan_label(lang, g["plan"]), "up": up})]
+    if any(r[0].lower() == name.lower() for r in rows):
+        return False, [("add_exists", {"name": name})]
+    try:
+        ip, port = parse_address(address)
+    except ValueError:
+        return False, [("add_badaddr", {})]
+    try:
+        await asyncio.to_thread(resolve_public, ip)
+    except (ValueError, OSError) as exc:
+        return False, [("add_refused", {"err": exc})]
+    await adb("INSERT INTO servers (guild_id, name, host, port, status) VALUES (?, ?, ?, ?, 'unknown') "
+              "ON CONFLICT(guild_id, name) DO NOTHING", (gid, name, ip, port))
+    test = await asyncio.to_thread(query_server, ip, port)
+    if test["online"]:
+        return True, [("add_ok", {"name": name, "c": len(test["players"]), "m": test["max_players"]})]
+    return True, [("add_noresp", {"name": name})]
+
+
+async def core_remove_server(gid, name):
+    n = await adb("DELETE FROM servers WHERE guild_id = ? AND LOWER(name) = LOWER(?)", (gid, name.strip()), fetch="rowcount")
+    if n:
+        for key in [k for k in previous_players if k[0] == gid and k[1].lower() == name.strip().lower()]:
+            forget_server(*key)
+    return bool(n), [("rm_ok" if n else "rm_none", {"name": name})]
+
+
+async def core_bl_add(gid, player):
+    player = player.strip()
+    g = await get_guild(gid)
+    lang = g["lang"]
+    row = await adb("SELECT COUNT(*) FROM blacklist WHERE guild_id = ?", (gid,), fetch="one")
+    if row and row[0] >= feat(g, "max_blacklist"):
+        up = tr(lang, "bl_up", n=PLANS["premium"]["max_blacklist"], url=PREMIUM_URL) if (g["plan"] != "premium" and not FREE_MODE) else ""
+        return False, [("bl_full", {"n": feat(g, "max_blacklist"), "up": up})]
+    await adb("INSERT INTO blacklist (guild_id, player_name) VALUES (?, ?) ON CONFLICT(guild_id, player_name) DO NOTHING",
+              (gid, player))
+    return True, [("bl_added", {"p": player})]
+
+
+async def core_bl_remove(gid, player):
+    n = await adb("DELETE FROM blacklist WHERE guild_id = ? AND LOWER(player_name) = LOWER(?)",
+                  (gid, player.strip()), fetch="rowcount")
+    return bool(n), [("bl_removed" if n else "bl_notin", {"p": player})]
+
+
+async def core_tribe_set(gid, player, tribe):
+    row = await adb("SELECT COUNT(*) FROM player_tribes WHERE guild_id = ?", (gid,), fetch="one")
+    exists = await adb("SELECT 1 FROM player_tribes WHERE guild_id = ? AND player_name = ?", (gid, player.strip()), fetch="one")
+    if row and row[0] >= MAX_LIST and not exists:
+        return False, [("tr_limit", {"n": MAX_LIST})]
+    await adb("INSERT INTO player_tribes (guild_id, player_name, tribe_name) VALUES (?, ?, ?) "
+              "ON CONFLICT(guild_id, player_name) DO UPDATE SET tribe_name = excluded.tribe_name",
+              (gid, player.strip(), tribe.strip()))
+    return True, [("tr_set", {"p": player, "t": tribe})]
+
+
+async def core_tribe_remove(gid, player):
+    n = await adb("DELETE FROM player_tribes WHERE guild_id = ? AND LOWER(player_name) = LOWER(?)",
+                  (gid, player.strip()), fetch="rowcount")
+    return bool(n), [("tr_removed" if n else "tr_none", {"p": player})]
+
+
+# ======================================================================================
 # COMMANDES : /config
 # ======================================================================================
 config_group = admin_group("config", "Configure the bot for this Discord server")
-TZ_NAMES = sorted(available_timezones())
 
 
 async def ac_my_servers(interaction: discord.Interaction, current: str):
@@ -1227,33 +1368,9 @@ async def ac_tz(interaction: discord.Interaction, current: str):
 async def cfg_channels(interaction: discord.Interaction, dashboard: discord.TextChannel,
                        history: discord.TextChannel = None):
     await interaction.response.defer(ephemeral=True)
-    g = await get_guild(interaction.guild_id)
-    lang = g["lang"]
-    me = interaction.guild.me
-    for ch in (dashboard, history):
-        if ch is None:
-            continue
-        p = ch.permissions_for(me)
-        if not (p.view_channel and p.send_messages and p.embed_links):
-            await interaction.followup.send(tr(lang, "ch_perm", ch=ch.mention), ephemeral=True)
-            return
-    if g.get("channel_id") != dashboard.id:        # nouveau salon : on repart de zéro côté affichage
-        old = interaction.guild.get_channel(g.get("channel_id")) if g.get("channel_id") else None
-        s = st(g)
-        if old:
-            for mid in s["roster_ids"] + ([s["dashboard_id"]] if s["dashboard_id"] else []):
-                try:
-                    await old.get_partial_message(mid).delete()
-                except discord.HTTPException:
-                    pass
-        gstate.pop(interaction.guild_id, None)
-        await adb("UPDATE guilds SET dashboard_id = NULL, roster_ids = NULL WHERE guild_id = ?",
-                  (interaction.guild_id,))
-    await adb("UPDATE guilds SET channel_id = ?, history_channel_id = ? WHERE guild_id = ?",
-              (dashboard.id, history.id if history else None, interaction.guild_id))
-    txt = tr(lang, "ch_dash", ch=dashboard.mention)
-    txt += tr(lang, "ch_hist", ch=history.mention) if history else tr(lang, "ch_nohist")
-    await interaction.followup.send(txt, ephemeral=True)
+    lang = await lang_of(interaction.guild_id)
+    _, parts = await core_channels(interaction.guild, dashboard, history)
+    await interaction.followup.send(render(lang, parts), ephemeral=True)
 
 
 @config_group.command(name="timezone", description="Set the time zone (displayed times and recaps).")
@@ -1262,12 +1379,8 @@ async def cfg_channels(interaction: discord.Interaction, dashboard: discord.Text
 async def cfg_timezone(interaction: discord.Interaction, name: str):
     await interaction.response.defer(ephemeral=True)
     lang = await lang_of(interaction.guild_id)
-    if name not in TZ_NAMES:
-        await interaction.followup.send(tr(lang, "tz_unknown"), ephemeral=True)
-        return
-    await get_guild(interaction.guild_id)
-    await adb("UPDATE guilds SET tz = ? WHERE guild_id = ?", (name, interaction.guild_id))
-    await interaction.followup.send(tr(lang, "tz_set", tz=name), ephemeral=True)
+    _, parts = await core_timezone(interaction.guild_id, name)
+    await interaction.followup.send(render(lang, parts), ephemeral=True)
 
 
 @config_group.command(name="language", description="Choose the bot's language for this Discord server.")
@@ -1275,10 +1388,8 @@ async def cfg_timezone(interaction: discord.Interaction, name: str):
 @app_commands.choices(language=[app_commands.Choice(name=n, value=c) for c, n in LANGS.items()])
 async def cfg_language(interaction: discord.Interaction, language: app_commands.Choice[str]):
     await interaction.response.defer(ephemeral=True)
-    await get_guild(interaction.guild_id)
-    await adb("UPDATE guilds SET lang = ? WHERE guild_id = ?", (language.value, interaction.guild_id))
-    gstate.pop(interaction.guild_id, None)           # le prochain relevé réécrit les messages dans la nouvelle langue
-    await interaction.followup.send(tr(language.value, "lang_set", name=LANGS[language.value]), ephemeral=True)
+    _, parts = await core_language(interaction.guild_id, language.value)
+    await interaction.followup.send(render(language.value, parts), ephemeral=True)
 
 
 @config_group.command(name="add-server", description="Add a game server to monitor.")
@@ -1287,37 +1398,9 @@ async def cfg_language(interaction: discord.Interaction, language: app_commands.
 async def cfg_add(interaction: discord.Interaction, name: app_commands.Range[str, 1, 32],
                   address: app_commands.Range[str, 5, 260]):
     await interaction.response.defer(ephemeral=True)
-    gid, name = interaction.guild_id, name.strip()
-    g = await get_guild(gid)
-    lang = g["lang"]
-    rows = (await adb("SELECT name FROM servers WHERE guild_id = ?", (gid,), fetch="all")) or []
-    limit = feat(g, "max_servers")
-    if len(rows) >= limit:
-        up = tr(lang, "add_up", n=PLANS["premium"]["max_servers"], url=PREMIUM_URL) if (g["plan"] != "premium" and not FREE_MODE) else ""
-        await interaction.followup.send(tr(lang, "add_limit", limit=limit, plan=plan_label(lang, g["plan"]), up=up),
-                                        ephemeral=True)
-        return
-    if any(r[0].lower() == name.lower() for r in rows):
-        await interaction.followup.send(tr(lang, "add_exists", name=nm(name)), ephemeral=True)
-        return
-    try:
-        ip, port = parse_address(address)
-    except ValueError:
-        await interaction.followup.send(tr(lang, "add_badaddr"), ephemeral=True)
-        return
-    try:
-        await asyncio.to_thread(resolve_public, ip)
-    except (ValueError, OSError) as exc:
-        await interaction.followup.send(tr(lang, "add_refused", err=exc), ephemeral=True)
-        return
-    await adb("INSERT INTO servers (guild_id, name, host, port, status) VALUES (?, ?, ?, ?, 'unknown') "
-              "ON CONFLICT(guild_id, name) DO NOTHING", (gid, name, ip, port))
-    test = await asyncio.to_thread(query_server, ip, port)
-    if test["online"]:
-        msg = tr(lang, "add_ok", name=nm(name), c=len(test["players"]), m=test["max_players"])
-    else:
-        msg = tr(lang, "add_noresp", name=nm(name))
-    await interaction.followup.send(msg, ephemeral=True)
+    lang = await lang_of(interaction.guild_id)
+    _, parts = await core_add_server(interaction.guild_id, name, address)
+    await interaction.followup.send(render(lang, parts), ephemeral=True)
 
 
 @config_group.command(name="remove-server", description="Remove a game server.")
@@ -1326,12 +1409,8 @@ async def cfg_add(interaction: discord.Interaction, name: app_commands.Range[str
 async def cfg_remove(interaction: discord.Interaction, name: str):
     await interaction.response.defer(ephemeral=True)
     lang = await lang_of(interaction.guild_id)
-    n = await adb("DELETE FROM servers WHERE guild_id = ? AND LOWER(name) = LOWER(?)",
-                  (interaction.guild_id, name.strip()), fetch="rowcount")
-    if n:
-        for key in [k for k in previous_players if k[0] == interaction.guild_id and k[1].lower() == name.strip().lower()]:
-            forget_server(*key)
-    await interaction.followup.send(tr(lang, "rm_ok" if n else "rm_none", name=nm(name)), ephemeral=True)
+    _, parts = await core_remove_server(interaction.guild_id, name)
+    await interaction.followup.send(render(lang, parts), ephemeral=True)
 
 
 @config_group.command(name="status", description="Show the configuration and the state of your servers.")
@@ -1381,17 +1460,9 @@ blacklist_group = admin_group("blacklist", "Manage the list of watched players")
 @app_commands.describe(player="Exact player name")
 async def bl_add(interaction: discord.Interaction, player: app_commands.Range[str, 1, 64]):
     await interaction.response.defer(ephemeral=True)
-    gid, player = interaction.guild_id, player.strip()
-    g = await get_guild(gid)
-    lang = g["lang"]
-    row = await adb("SELECT COUNT(*) FROM blacklist WHERE guild_id = ?", (gid,), fetch="one")
-    if row and row[0] >= feat(g, "max_blacklist"):
-        up = tr(lang, "bl_up", n=PLANS["premium"]["max_blacklist"], url=PREMIUM_URL) if (g["plan"] != "premium" and not FREE_MODE) else ""
-        await interaction.followup.send(tr(lang, "bl_full", n=feat(g, "max_blacklist"), up=up), ephemeral=True)
-        return
-    await adb("INSERT INTO blacklist (guild_id, player_name) VALUES (?, ?) ON CONFLICT(guild_id, player_name) DO NOTHING",
-              (gid, player))
-    await interaction.followup.send(tr(lang, "bl_added", p=nm(player)), ephemeral=True)
+    lang = await lang_of(interaction.guild_id)
+    _, parts = await core_bl_add(interaction.guild_id, player)
+    await interaction.followup.send(render(lang, parts), ephemeral=True)
 
 
 @blacklist_group.command(name="remove", description="Remove a player from the blacklist.")
@@ -1399,9 +1470,8 @@ async def bl_add(interaction: discord.Interaction, player: app_commands.Range[st
 async def bl_remove(interaction: discord.Interaction, player: str):
     await interaction.response.defer(ephemeral=True)
     lang = await lang_of(interaction.guild_id)
-    n = await adb("DELETE FROM blacklist WHERE guild_id = ? AND LOWER(player_name) = LOWER(?)",
-                  (interaction.guild_id, player.strip()), fetch="rowcount")
-    await interaction.followup.send(tr(lang, "bl_removed" if n else "bl_notin", p=nm(player)), ephemeral=True)
+    _, parts = await core_bl_remove(interaction.guild_id, player)
+    await interaction.followup.send(render(lang, parts), ephemeral=True)
 
 
 @blacklist_group.command(name="list", description="Show the blacklist.")
@@ -1428,17 +1498,9 @@ tribe_group = admin_group("tribe", "Link players to tribes")
 async def tr_set(interaction: discord.Interaction, player: app_commands.Range[str, 1, 64],
                  tribe: app_commands.Range[str, 1, 32]):
     await interaction.response.defer(ephemeral=True)
-    gid = interaction.guild_id
-    lang = await lang_of(gid)
-    row = await adb("SELECT COUNT(*) FROM player_tribes WHERE guild_id = ?", (gid,), fetch="one")
-    exists = await adb("SELECT 1 FROM player_tribes WHERE guild_id = ? AND player_name = ?", (gid, player.strip()), fetch="one")
-    if row and row[0] >= MAX_LIST and not exists:
-        await interaction.followup.send(tr(lang, "tr_limit", n=MAX_LIST), ephemeral=True)
-        return
-    await adb("INSERT INTO player_tribes (guild_id, player_name, tribe_name) VALUES (?, ?, ?) "
-              "ON CONFLICT(guild_id, player_name) DO UPDATE SET tribe_name = excluded.tribe_name",
-              (gid, player.strip(), tribe.strip()))
-    await interaction.followup.send(tr(lang, "tr_set", p=nm(player), t=nm(tribe)), ephemeral=True)
+    lang = await lang_of(interaction.guild_id)
+    _, parts = await core_tribe_set(interaction.guild_id, player, tribe)
+    await interaction.followup.send(render(lang, parts), ephemeral=True)
 
 
 @tribe_group.command(name="remove", description="Remove a player's tribe affiliation.")
@@ -1446,9 +1508,8 @@ async def tr_set(interaction: discord.Interaction, player: app_commands.Range[st
 async def tr_remove(interaction: discord.Interaction, player: str):
     await interaction.response.defer(ephemeral=True)
     lang = await lang_of(interaction.guild_id)
-    n = await adb("DELETE FROM player_tribes WHERE guild_id = ? AND LOWER(player_name) = LOWER(?)",
-                  (interaction.guild_id, player.strip()), fetch="rowcount")
-    await interaction.followup.send(tr(lang, "tr_removed" if n else "tr_none", p=nm(player)), ephemeral=True)
+    _, parts = await core_tribe_remove(interaction.guild_id, player)
+    await interaction.followup.send(render(lang, parts), ephemeral=True)
 
 
 @tribe_group.command(name="list", description="Show tribes and their members.")
@@ -1701,18 +1762,342 @@ async def owner_bilan(ctx):
 
 
 # ======================================================================================
-# SERVEUR WEB (santé / keep-alive hébergeur)
+# SERVEUR WEB : santé / keep-alive + API de la console de configuration du site
 # ======================================================================================
+# Variables d'environnement de la console web (toutes les trois sont nécessaires pour l'activer) :
+#   DISCORD_CLIENT_SECRET : secret OAuth2 de l'application Discord (Developer Portal > OAuth2)
+#   PUBLIC_URL            : adresse publique de CE bot, ex. https://tribespy.onrender.com
+#   DASHBOARD_URL         : adresse de la page console du site, ex. https://clrzz.github.io/tribespy-site/config.html
+CLIENT_SECRET = os.environ.get("DISCORD_CLIENT_SECRET", "")
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "")
+WEB_ENABLED = bool(CLIENT_SECRET and PUBLIC_URL and DASHBOARD_URL)
+WEB_SESSION_DAYS = 7
+DISCORD_API = "https://discord.com/api/v10"
+BOT_PERMISSIONS = 216064                         # mêmes droits que le bouton « Ajouter à Discord » du site
+PERM_ADMIN, PERM_MANAGE_GUILD = 0x8, 0x20
+
+
+def _origin(url):
+    u = urlsplit(url)
+    return f"{u.scheme}://{u.netloc}" if u.scheme and u.netloc else ""
+
+
+CORS_ORIGINS = {o for o in [_origin(DASHBOARD_URL), _origin(SITE_URL)]
+                + [_origin(x.strip()) for x in os.environ.get("CORS_ORIGINS", "").split(",")] if o}
+_oauth_states = {}                               # state -> expiration (anti-CSRF du login)
+_member_cache = {}                               # (gid, uid) -> (expiration, peut gérer ?)
+_write_log = {}                                  # hash de session -> horodatages des dernières modifications
+
+
+def client_id():
+    return os.environ.get("DISCORD_CLIENT_ID") or str(bot.application_id or "")
+
+
+def invite_url(guild_id=None):
+    q = {"client_id": client_id(), "permissions": BOT_PERMISSIONS, "scope": "bot applications.commands"}
+    if guild_id:
+        q.update(guild_id=guild_id, disable_guild_select="true")
+    return "https://discord.com/oauth2/authorize?" + urlencode(q)
+
+
+def _hash(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def jerr(status, error, message=None):
+    return web.json_response({"ok": False, "error": error, "message": message or error}, status=status)
+
+
+@web.middleware
+async def cors_mw(request, handler):
+    origin = request.headers.get("Origin", "")
+    if request.method == "OPTIONS":
+        resp = web.Response(status=204)
+    else:
+        try:
+            resp = await handler(request)
+        except web.HTTPException as exc:          # converties en vraies réponses (redirections et erreurs JSON)
+            resp = web.Response(status=exc.status, text=exc.text, content_type=exc.content_type)
+            if isinstance(exc, web.HTTPRedirection):
+                resp.headers["Location"] = str(exc.location)
+        except Exception:
+            log.exception("Erreur API %s %s", request.method, request.path)
+            resp = jerr(500, "server_error")
+    if origin and origin in CORS_ORIGINS:
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
+        resp.headers["Access-Control-Max-Age"] = "600"
+        resp.headers["Vary"] = "Origin"
+    return resp
+
+
+# ---------- connexion Discord (OAuth2) ----------
+async def auth_login(request):
+    if not WEB_ENABLED:
+        return web.Response(status=503, text="Web console disabled (DISCORD_CLIENT_SECRET / PUBLIC_URL / DASHBOARD_URL).")
+    now = time.time()
+    for k in [k for k, exp in _oauth_states.items() if exp < now]:
+        _oauth_states.pop(k, None)
+    state = secrets.token_urlsafe(24)
+    _oauth_states[state] = now + 600
+    q = {"client_id": client_id(), "response_type": "code", "scope": "identify guilds",
+         "redirect_uri": PUBLIC_URL + "/auth/callback", "state": state, "prompt": "none"}
+    raise web.HTTPFound("https://discord.com/oauth2/authorize?" + urlencode(q))
+
+
+async def auth_callback(request):
+    if not WEB_ENABLED:
+        return web.Response(status=503, text="Web console disabled.")
+    state, code = request.query.get("state", ""), request.query.get("code", "")
+    if not code or _oauth_states.pop(state, 0) < time.time():
+        raise web.HTTPFound(DASHBOARD_URL + "#error=login")
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as http:
+        data = {"client_id": client_id(), "client_secret": CLIENT_SECRET, "grant_type": "authorization_code",
+                "code": code, "redirect_uri": PUBLIC_URL + "/auth/callback"}
+        async with http.post(DISCORD_API + "/oauth2/token", data=data) as r:
+            if r.status != 200:
+                log.warning("OAuth : échange du code refusé (%s)", r.status)
+                raise web.HTTPFound(DASHBOARD_URL + "#error=login")
+            access = (await r.json())["access_token"]
+        headers = {"Authorization": f"Bearer {access}"}
+        async with http.get(DISCORD_API + "/users/@me", headers=headers) as r:
+            user = await r.json()
+        async with http.get(DISCORD_API + "/users/@me/guilds", headers=headers) as r:
+            guilds = await r.json() if r.status == 200 else []
+    # On ne garde que les serveurs que la personne peut gérer ; le jeton Discord n'est pas conservé.
+    manageable = [{"id": g["id"], "name": g.get("name", ""), "icon": g.get("icon")} for g in guilds
+                  if g.get("owner") or int(g.get("permissions", 0)) & (PERM_ADMIN | PERM_MANAGE_GUILD)]
+    token = secrets.token_urlsafe(32)
+    expires = (utcnow() + timedelta(days=WEB_SESSION_DAYS)).isoformat()
+    await adb("INSERT INTO web_sessions (token_hash, user_id, username, avatar, guilds, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+              (_hash(token), int(user["id"]), user.get("global_name") or user.get("username", ""), user.get("avatar"),
+               json.dumps(manageable), expires))
+    raise web.HTTPFound(DASHBOARD_URL + "#token=" + token)
+
+
+async def session_of(request):
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise web.HTTPUnauthorized(text='{"ok":false,"error":"auth"}', content_type="application/json")
+    h = _hash(auth[7:].strip())
+    row = await adb("SELECT user_id, username, avatar, guilds, expires_at FROM web_sessions WHERE token_hash = ?",
+                    (h,), fetch="one")
+    if not row or row[4] < utcnow().isoformat():
+        raise web.HTTPUnauthorized(text='{"ok":false,"error":"auth"}', content_type="application/json")
+    return {"hash": h, "user_id": int(row[0]), "username": row[1], "avatar": row[2], "guilds": json.loads(row[3] or "[]")}
+
+
+async def can_manage(guild, user_id):
+    """Vérifie à chaque requête (cache 60 s) que la personne a toujours « Gérer le serveur » sur ce Discord."""
+    key, now = (guild.id, user_id), time.time()
+    hit = _member_cache.get(key)
+    if hit and hit[0] > now:
+        return hit[1]
+    try:
+        member = guild.get_member(user_id) or await guild.fetch_member(user_id)
+        ok = member.guild_permissions.manage_guild
+    except discord.NotFound:
+        ok = False
+    _member_cache[key] = (now + 60, ok)
+    return ok
+
+
+async def guild_access(request, write=False):
+    sess = await session_of(request)
+    try:
+        gid = int(request.match_info["gid"])
+    except ValueError:
+        raise web.HTTPNotFound()
+    guild = bot.get_guild(gid)
+    if guild is None or not any(int(g["id"]) == gid for g in sess["guilds"]):
+        raise web.HTTPNotFound(text='{"ok":false,"error":"guild"}', content_type="application/json")
+    if not await can_manage(guild, sess["user_id"]):
+        raise web.HTTPForbidden(text='{"ok":false,"error":"forbidden"}', content_type="application/json")
+    if write:                                    # limite simple : 30 modifications par minute et par session
+        now = time.time()
+        recent = [t for t in _write_log.get(sess["hash"], []) if t > now - 60]
+        if len(recent) >= 30:
+            raise web.HTTPTooManyRequests(text='{"ok":false,"error":"rate"}', content_type="application/json")
+        _write_log[sess["hash"]] = recent + [now]
+    return sess, guild
+
+
+def req_lang(request, fallback):
+    lang = request.query.get("lang", "")
+    return lang if lang in LANGS else fallback
+
+
+async def body_of(request):
+    try:
+        data = await request.json()
+    except Exception:
+        raise web.HTTPBadRequest(text='{"ok":false,"error":"json"}', content_type="application/json")
+    if not isinstance(data, dict):
+        raise web.HTTPBadRequest(text='{"ok":false,"error":"json"}', content_type="application/json")
+    return data
+
+
+def text_field(data, key, lo, hi):
+    v = data.get(key)
+    if not isinstance(v, str) or not (lo <= len(v.strip()) <= hi):
+        raise web.HTTPBadRequest(text=json.dumps({"ok": False, "error": "field", "field": key}),
+                                 content_type="application/json")
+    return v.strip()
+
+
+async def answer(request, guild, result):
+    ok, parts = result
+    lang = req_lang(request, (await get_guild(guild.id))["lang"])
+    return web.json_response({"ok": ok, "message": render(lang, parts, web=True)}, status=200 if ok else 400)
+
+
+# ---------- API ----------
+async def api_config(request):
+    return web.json_response({"enabled": WEB_ENABLED, "login_url": PUBLIC_URL + "/auth/login" if WEB_ENABLED else None,
+                              "invite_url": invite_url(), "langs": LANGS})
+
+
+async def api_me(request):
+    sess = await session_of(request)
+    guilds = []
+    for g in sess["guilds"]:
+        present = bot.get_guild(int(g["id"])) is not None
+        guilds.append({**g, "bot": present, "invite_url": None if present else invite_url(g["id"])})
+    guilds.sort(key=lambda g: (not g["bot"], g["name"].lower()))
+    return web.json_response({"user": {"id": str(sess["user_id"]), "name": sess["username"], "avatar": sess["avatar"]},
+                              "guilds": guilds})
+
+
+async def api_logout(request):
+    sess = await session_of(request)
+    await adb("DELETE FROM web_sessions WHERE token_hash = ?", (sess["hash"],))
+    return web.json_response({"ok": True})
+
+
+async def api_guild(request):
+    _, guild = await guild_access(request)
+    gid = guild.id
+    g = await get_guild(gid)
+    servers = (await adb("SELECT name, host, port, status FROM servers WHERE guild_id = ? ORDER BY name", (gid,), fetch="all")) or []
+    bl = (await adb("SELECT player_name FROM blacklist WHERE guild_id = ? ORDER BY player_name", (gid,), fetch="all")) or []
+    tribes = (await adb("SELECT player_name, tribe_name FROM player_tribes WHERE guild_id = ? ORDER BY tribe_name, player_name",
+                        (gid,), fetch="all")) or []
+    channels = [{"id": str(c.id), "name": c.name, "category": c.category.name if c.category else None, "writable": can_write(c)}
+                for c in sorted(guild.text_channels, key=lambda c: c.position)]
+    return web.json_response({
+        "guild": {"id": str(gid), "name": guild.name, "icon": guild.icon.url if guild.icon else None},
+        "settings": {"channel_id": str(g["channel_id"]) if g["channel_id"] else None,
+                     "history_channel_id": str(g["history_channel_id"]) if g["history_channel_id"] else None,
+                     "tz": g["tz"] or DEFAULT_TZ, "lang": g["lang"]},
+        "plan": {"name": g["plan"], "max_servers": feat(g, "max_servers"), "max_blacklist": feat(g, "max_blacklist"),
+                 "max_tribes": MAX_LIST},
+        "channels": channels,
+        "servers": [{"name": n, "address": f"{h}:{p}", "status": norm_status(s_)} for n, h, p, s_ in servers],
+        "blacklist": [r[0] for r in bl],
+        "tribes": [{"player": p, "tribe": t} for p, t in tribes],
+        "timezones": TZ_NAMES,
+    })
+
+
+async def api_settings(request):
+    _, guild = await guild_access(request, write=True)
+    data = await body_of(request)
+    parts, ok = [], True
+
+    def channel(key):
+        v = data.get(key)
+        if not v:
+            return None
+        ch = guild.get_channel(int(v)) if str(v).isdigit() else None
+        if not isinstance(ch, discord.TextChannel):
+            raise web.HTTPBadRequest(text=json.dumps({"ok": False, "error": "field", "field": key}),
+                                     content_type="application/json")
+        return ch
+
+    if "channel_id" in data:
+        dash = channel("channel_id")
+        if dash is None:
+            raise web.HTTPBadRequest(text='{"ok":false,"error":"field","field":"channel_id"}', content_type="application/json")
+        r_ok, r_parts = await core_channels(guild, dash, channel("history_channel_id"))
+        ok, parts = ok and r_ok, parts + r_parts
+    if ok and data.get("tz"):
+        r_ok, r_parts = await core_timezone(guild.id, str(data["tz"]))
+        ok, parts = ok and r_ok, parts + [("sep", {})] * bool(parts) + r_parts
+    if ok and data.get("lang"):
+        if data["lang"] not in LANGS:
+            raise web.HTTPBadRequest(text='{"ok":false,"error":"field","field":"lang"}', content_type="application/json")
+        r_ok, r_parts = await core_language(guild.id, data["lang"])
+        ok, parts = ok and r_ok, parts + [("sep", {})] * bool(parts) + r_parts
+    return await answer(request, guild, (ok, parts))
+
+
+async def api_add_server(request):
+    _, guild = await guild_access(request, write=True)
+    data = await body_of(request)
+    return await answer(request, guild, await core_add_server(guild.id, text_field(data, "name", 1, 32),
+                                                              text_field(data, "address", 5, 260)))
+
+
+async def api_remove_server(request):
+    _, guild = await guild_access(request, write=True)
+    return await answer(request, guild, await core_remove_server(guild.id, request.query.get("name", "")))
+
+
+async def api_bl_add(request):
+    _, guild = await guild_access(request, write=True)
+    data = await body_of(request)
+    return await answer(request, guild, await core_bl_add(guild.id, text_field(data, "player", 1, 64)))
+
+
+async def api_bl_remove(request):
+    _, guild = await guild_access(request, write=True)
+    return await answer(request, guild, await core_bl_remove(guild.id, request.query.get("player", "")))
+
+
+async def api_tribe_set(request):
+    _, guild = await guild_access(request, write=True)
+    data = await body_of(request)
+    return await answer(request, guild, await core_tribe_set(guild.id, text_field(data, "player", 1, 64),
+                                                             text_field(data, "tribe", 1, 32)))
+
+
+async def api_tribe_remove(request):
+    _, guild = await guild_access(request, write=True)
+    return await answer(request, guild, await core_tribe_remove(guild.id, request.query.get("player", "")))
+
+
 async def handle_ping(request):
     return web.Response(text=f"{BRAND} actif")
 
 
+def build_web_app():
+    app = web.Application(middlewares=[cors_mw], client_max_size=64 * 1024)
+    r = app.router
+    r.add_get("/", handle_ping)
+    r.add_get("/auth/login", auth_login)
+    r.add_get("/auth/callback", auth_callback)
+    r.add_get("/api/config", api_config)
+    r.add_get("/api/me", api_me)
+    r.add_post("/api/logout", api_logout)
+    r.add_get("/api/guilds/{gid}", api_guild)
+    r.add_patch("/api/guilds/{gid}/settings", api_settings)
+    r.add_post("/api/guilds/{gid}/servers", api_add_server)
+    r.add_delete("/api/guilds/{gid}/servers", api_remove_server)
+    r.add_post("/api/guilds/{gid}/blacklist", api_bl_add)
+    r.add_delete("/api/guilds/{gid}/blacklist", api_bl_remove)
+    r.add_post("/api/guilds/{gid}/tribes", api_tribe_set)
+    r.add_delete("/api/guilds/{gid}/tribes", api_tribe_remove)
+    r.add_route("OPTIONS", "/{tail:.*}", handle_ping)    # pré-requêtes CORS (réponse faite par le middleware)
+    return app
+
+
 async def start_web_server():
-    app = web.Application()
-    app.router.add_get("/", handle_ping)
-    runner = web.AppRunner(app)
+    runner = web.AppRunner(build_web_app())
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", int(os.environ.get("PORT", 10000))).start()
+    log.info("Console web %s", "activée" if WEB_ENABLED else "désactivée (variables OAuth manquantes)")
 
 
 if __name__ == "__main__":
