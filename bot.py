@@ -1766,11 +1766,12 @@ async def owner_bilan(ctx):
 # ======================================================================================
 # Variables d'environnement de la console web (toutes les trois sont nécessaires pour l'activer) :
 #   DISCORD_CLIENT_SECRET : secret OAuth2 de l'application Discord (Developer Portal > OAuth2)
-#   PUBLIC_URL            : adresse publique de CE bot, ex. https://tribespy.onrender.com
-#   DASHBOARD_URL         : adresse de la page console du site, ex. https://clrzz.github.io/tribespy-site/config.html
+#   PUBLIC_URL            : adresse publique de CE bot (automatique sur Render), ex. https://tribespy.onrender.com
+#   DASHBOARD_URL         : adresse de la page console du site (par défaut SITE_URL + /config.html)
 CLIENT_SECRET = os.environ.get("DISCORD_CLIENT_SECRET", "")
-PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
-DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "")
+# Sur Render, l'adresse publique est fournie automatiquement (RENDER_EXTERNAL_URL).
+PUBLIC_URL = (os.environ.get("PUBLIC_URL") or os.environ.get("RENDER_EXTERNAL_URL", "")).rstrip("/")
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL") or (SITE_URL.rstrip("/") + "/config.html" if SITE_URL else "")
 WEB_ENABLED = bool(CLIENT_SECRET and PUBLIC_URL and DASHBOARD_URL)
 WEB_SESSION_DAYS = 7
 DISCORD_API = "https://discord.com/api/v10"
