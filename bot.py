@@ -1129,7 +1129,6 @@ async def maintenance():
 # ======================================================================================
 class TribeBot(commands.Bot):
     async def setup_hook(self):
-        await start_web_server()
         if os.environ.get("AUTO_SYNC", "1") == "1":
             try:
                 await self.tree.sync()
@@ -2138,8 +2137,60 @@ async def start_web_server():
     log.info("Console web %s", "activée" if WEB_ENABLED else "désactivée (variables OAuth manquantes)")
 
 
+LOGIN_RETRY_MIN = 300          # 1re attente si Discord bloque la connexion (secondes)
+LOGIN_RETRY_MAX = 900          # attente maximale entre deux essais
+
+
+async def wait_for_discord():
+    """Attend que Discord accepte à nouveau la connexion du bot.
+
+    Une erreur 429 « global rate limit » au démarrage veut dire que l'adresse IP de l'hébergeur est
+    bloquée temporairement. Relancer le bot en boucle prolonge le blocage : on patiente à la place,
+    avec une seule requête de contrôle par essai.
+    """
+    delay = LOGIN_RETRY_MIN
+    while True:
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as s:
+                async with s.get("https://discord.com/api/v10/users/@me",
+                                 headers={"Authorization": f"Bot {TOKEN}"}) as r:
+                    if r.status != 429:
+                        return
+                    try:
+                        retry = float(r.headers.get("Retry-After") or 0)
+                    except ValueError:
+                        retry = 0
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            log.warning("Discord injoignable (%s), nouvel essai dans 1 min", e)
+            await asyncio.sleep(60)
+            continue
+        wait = min(max(delay, retry), 3600)
+        log.warning("Discord bloque temporairement la connexion (429). Nouvel essai dans %d min.",
+                    round(wait / 60))
+        await asyncio.sleep(wait)
+        delay = min(delay * 2, LOGIN_RETRY_MAX)
+
+
+async def main():
+    await start_web_server()          # le port reste ouvert même si Discord fait patienter le bot
+    await wait_for_discord()
+    try:
+        async with bot:
+            await bot.start(TOKEN)
+    except discord.HTTPException as e:
+        if e.status != 429:
+            raise
+        log.warning("Discord bloque temporairement la connexion (429). Redémarrage dans %d min.",
+                    LOGIN_RETRY_MIN // 60)
+        await asyncio.sleep(LOGIN_RETRY_MIN)      # évite que l'hébergeur relance le bot en boucle
+        raise
+
+
 if __name__ == "__main__":
     if not TOKEN:
         print("CRITICAL: DISCORD_TOKEN manquant !")
     else:
-        bot.run(TOKEN, log_handler=None)
+        try:
+            asyncio.run(main())
+        except KeyboardInterrupt:
+            pass
