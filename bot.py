@@ -160,40 +160,22 @@ STR = {
                     "fr": "Félicitations à **{p}** qui remporte la palme du tryhard !\n\n{podium}"},
     # bot
     "welcome_title": {"en": "👋 Thanks for adding {brand}!", "fr": "👋 Merci d'avoir ajouté {brand} !"},
-    "welcome_desc": {"en": "Here's how to set me up in 2 minutes. Pick **one** of the two ways below.\n"
-                            "*(Only members with the **Manage Server** permission can do it.)*",
-                     "fr": "Voici comment me configurer en 2 minutes. Choisis **une** des deux méthodes ci-dessous.\n"
-                            "*(Seuls les membres avec la permission **Gérer le serveur** peuvent le faire.)*"},
-    "welcome_web_t": {"en": "🌐 Option A — On the website (easiest)", "fr": "🌐 Méthode A — Sur le site (le plus simple)"},
-    "welcome_web": {"en": ("**1.** Click **Configure on the website** below\n"
-                           "**2.** Log in with Discord, then click **Configure** next to this server\n"
-                           "**3.** *General* tab: pick the **dashboard channel**, your **time zone** and the **language**, then **Save**\n"
-                           "**4.** *Game servers* tab: enter a **name** and the address `IP:query port`, then **Add**"),
-                    "fr": ("**1.** Clique sur **Configurer sur le site** juste en dessous\n"
-                           "**2.** Connecte-toi avec Discord, puis clique sur **Configurer** à côté de ce serveur\n"
-                           "**3.** Onglet *Général* : choisis le **salon du tableau de bord**, ton **fuseau horaire** et la **langue**, puis **Enregistrer**\n"
-                           "**4.** Onglet *Serveurs de jeu* : mets un **nom** et l'adresse `IP:port de requête`, puis **Ajouter**")},
-    "welcome_dc_t": {"en": "💬 Option B — Right here in Discord", "fr": "💬 Méthode B — Directement dans Discord"},
-    "welcome_dc": {"en": ("**1.** `/config channels` → pick the **dashboard** channel (and a **history** channel for alerts, optional)\n"
-                          "**2.** `/config add-server` → a **name** (e.g. Ragnarok) + the address `IP:query port`\n"
-                          "**3.** `/config timezone` → start typing your city (e.g. `Europe/Par`) and pick it in the list\n"
-                          "**4.** `/config language` → English or Français"),
-                   "fr": ("**1.** `/config channels` → choisis le salon du **tableau de bord** (et un salon d'**historique** pour les alertes, facultatif)\n"
-                          "**2.** `/config add-server` → un **nom** (ex. Ragnarok) + l'adresse `IP:port de requête`\n"
-                          "**3.** `/config timezone` → commence à taper ta ville (ex. `Europe/Par`) et choisis-la dans la liste\n"
-                          "**4.** `/config language` → English ou Français")},
-    "welcome_tips_t": {"en": "💡 Good to know", "fr": "💡 Bon à savoir"},
-    "welcome_tips": {"en": ("• The **query port** is often different from the game port: check your host's panel.\n"
-                            "• The dashboard appears within a minute. `/config status` shows if everything is OK.\n"
-                            "• `/setup` shows this guide again, `/help` lists all commands."),
-                     "fr": ("• Le **port de requête** (query port) est souvent différent du port de jeu : regarde le panel de ton hébergeur.\n"
-                            "• Le tableau de bord apparaît en moins d'une minute. `/config status` dit si tout est bon.\n"
-                            "• `/setup` réaffiche ce guide, `/help` liste toutes les commandes.")},
-    "welcome_fr_hint": {"en": "🇫🇷 En français : tape `/config language` et choisis Français.", "fr": ""},
-    "setup_title": {"en": "🛠️ {brand} setup guide", "fr": "🛠️ Guide de configuration de {brand}"},
+    "welcome_desc": {"en": ("Set me up in **2 steps** *(Manage Server permission needed)*:\n\n"
+                            "**1.** Pick the channel where players will show up\n"
+                            "**2.** Add your game server (`IP:query port`)"),
+                     "fr": ("Configure-moi en **2 étapes** *(permission Gérer le serveur requise)* :\n\n"
+                            "**1.** Choisis le salon où afficher les joueurs\n"
+                            "**2.** Ajoute ton serveur de jeu (`IP:port de requête`)")},
+    "welcome_web": {"en": "👉 Easiest: click **Configure on the website** below.",
+                    "fr": "👉 Le plus simple : clique sur **Configurer sur le site** ci-dessous."},
+    "welcome_dc": {"en": "Or in Discord: `/config channels`, then `/config add-server`.",
+                   "fr": "Ou dans Discord : `/config channels`, puis `/config add-server`."},
+    "welcome_footer": {"en": "/setup shows this message again • En français : /config language",
+                       "fr": "/setup réaffiche ce message"},
     "btn_web": {"en": "Configure on the website", "fr": "Configurer sur le site"},
-    "btn_guide": {"en": "Full tutorial", "fr": "Tuto complet"},
+    "btn_guide": {"en": "Tutorial", "fr": "Tuto"},
     "btn_support": {"en": "Support", "fr": "Support"},
+    "setup_title": {"en": "🛠️ {brand} setup guide", "fr": "🛠️ Guide de configuration de {brand}"},
     "err_generic": {"en": "❌ An error occurred. Please try again in a moment.",
                     "fr": "❌ Une erreur est survenue. Réessaie dans un instant."},
     "err_admin": {"en": "⛔ Restricted to members with the “Manage Server” permission.",
@@ -1187,14 +1169,12 @@ def site_page(name):
 
 def setup_guide(guild_id, lang, title="welcome_title"):
     """Tuto de démarrage : embed + boutons (site, tuto complet, support)."""
-    embed = discord.Embed(title=tr(lang, title, brand=BRAND), description=tr(lang, "welcome_desc"),
-                          color=discord.Color.blue())
+    lines = [tr(lang, "welcome_desc"), ""]
     if WEB_ENABLED:
-        embed.add_field(name=tr(lang, "welcome_web_t"), value=tr(lang, "welcome_web"), inline=False)
-    embed.add_field(name=tr(lang, "welcome_dc_t"), value=tr(lang, "welcome_dc"), inline=False)
-    embed.add_field(name=tr(lang, "welcome_tips_t"), value=tr(lang, "welcome_tips"), inline=False)
-    if tr(lang, "welcome_fr_hint"):
-        embed.set_footer(text=tr(lang, "welcome_fr_hint").replace("`", ""))
+        lines.append(tr(lang, "welcome_web"))
+    lines.append(tr(lang, "welcome_dc"))
+    embed = discord.Embed(title=tr(lang, title, brand=BRAND), description="\n".join(lines), color=discord.Color.blue())
+    embed.set_footer(text=tr(lang, "welcome_footer"))
     view = discord.ui.View()
     if WEB_ENABLED:
         view.add_item(discord.ui.Button(label=tr(lang, "btn_web"), url=f"{DASHBOARD_URL}#g={guild_id}"))
