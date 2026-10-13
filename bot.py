@@ -7,6 +7,7 @@ English by default, French optional per Discord server (/config language).
 * Lancement : python bot.py   (variables d'environnement : voir README.md)
 """
 import asyncio
+import base64
 import hashlib
 import ipaddress
 import json
@@ -173,6 +174,8 @@ STR = {
     "welcome_footer": {"en": "/setup shows this message again • En français : /config language",
                        "fr": "/setup réaffiche ce message"},
     "btn_web": {"en": "Configure on the website", "fr": "Configurer sur le site"},
+    "web_starting": {"en": "The bot is starting up and not connected to Discord yet. Try again in a few minutes.",
+                     "fr": "Le bot est en train de démarrer et n'est pas encore connecté à Discord. Réessayez dans quelques minutes."},
     "btn_guide": {"en": "Tutorial", "fr": "Tuto"},
     "btn_support": {"en": "Support", "fr": "Support"},
     "setup_title": {"en": "🛠️ {brand} setup guide", "fr": "🛠️ Guide de configuration de {brand}"},
@@ -1827,8 +1830,26 @@ _member_cache = {}                               # (gid, uid) -> (expiration, pe
 _write_log = {}                                  # hash de session -> horodatages des dernières modifications
 
 
+def _id_from_token():
+    """Identifiant de l'application lu dans le jeton du bot (sa 1re partie), utile avant la connexion à Discord."""
+    try:
+        part = (TOKEN or "").split(".")[0]
+        uid = base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)).decode()
+        return uid if uid.isdigit() else ""
+    except Exception:
+        return ""
+
+
 def client_id():
-    return os.environ.get("DISCORD_CLIENT_ID") or str(bot.application_id or "")
+    return os.environ.get("DISCORD_CLIENT_ID") or str(bot.application_id or "") or _id_from_token()
+
+
+def require_ready(request):
+    """Tant que le bot n'est pas connecté à Discord, il ne voit aucun serveur : on le dit au lieu d'afficher une liste fausse."""
+    if not bot.is_ready():
+        raise web.HTTPServiceUnavailable(
+            text=json.dumps({"ok": False, "error": "starting", "message": tr(req_lang(request, "en"), "web_starting")}),
+            content_type="application/json")
 
 
 def invite_url(guild_id=None):
@@ -1943,6 +1964,7 @@ async def can_manage(guild, user_id):
 
 async def guild_access(request, write=False):
     sess = await session_of(request)
+    require_ready(request)
     try:
         gid = int(request.match_info["gid"])
     except ValueError:
@@ -1998,6 +2020,7 @@ async def api_config(request):
 
 async def api_me(request):
     sess = await session_of(request)
+    require_ready(request)
     guilds = []
     for g in sess["guilds"]:
         present = bot.get_guild(int(g["id"])) is not None
