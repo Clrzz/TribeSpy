@@ -160,18 +160,40 @@ STR = {
                     "fr": "Félicitations à **{p}** qui remporte la palme du tryhard !\n\n{podium}"},
     # bot
     "welcome_title": {"en": "👋 Thanks for adding {brand}!", "fr": "👋 Merci d'avoir ajouté {brand} !"},
-    "welcome_desc": {"en": ("To get started (requires the **Manage Server** permission):\n"
-                            "1️⃣ `/config channels` — pick the dashboard channel\n"
-                            "2️⃣ `/config add-server` — add your game server (name + `IP:port`)\n"
-                            "3️⃣ `/config timezone` — set your time zone\n"
-                            "4️⃣ `/config language` — English or Français\n\n"
-                            "Type `/help` to see all commands."),
-                     "fr": ("Pour démarrer (réservé aux membres avec la permission **Gérer le serveur**) :\n"
-                            "1️⃣ `/config channels` — choisis le salon du tableau de bord\n"
-                            "2️⃣ `/config add-server` — ajoute ton serveur de jeu (nom + `IP:port`)\n"
-                            "3️⃣ `/config timezone` — règle ton fuseau horaire\n"
-                            "4️⃣ `/config language` — English ou Français\n\n"
-                            "Tape `/help` pour voir toutes les commandes.")},
+    "welcome_desc": {"en": "Here's how to set me up in 2 minutes. Pick **one** of the two ways below.\n"
+                            "*(Only members with the **Manage Server** permission can do it.)*",
+                     "fr": "Voici comment me configurer en 2 minutes. Choisis **une** des deux méthodes ci-dessous.\n"
+                            "*(Seuls les membres avec la permission **Gérer le serveur** peuvent le faire.)*"},
+    "welcome_web_t": {"en": "🌐 Option A — On the website (easiest)", "fr": "🌐 Méthode A — Sur le site (le plus simple)"},
+    "welcome_web": {"en": ("**1.** Click **Configure on the website** below\n"
+                           "**2.** Log in with Discord, then click **Configure** next to this server\n"
+                           "**3.** *General* tab: pick the **dashboard channel**, your **time zone** and the **language**, then **Save**\n"
+                           "**4.** *Game servers* tab: enter a **name** and the address `IP:query port`, then **Add**"),
+                    "fr": ("**1.** Clique sur **Configurer sur le site** juste en dessous\n"
+                           "**2.** Connecte-toi avec Discord, puis clique sur **Configurer** à côté de ce serveur\n"
+                           "**3.** Onglet *Général* : choisis le **salon du tableau de bord**, ton **fuseau horaire** et la **langue**, puis **Enregistrer**\n"
+                           "**4.** Onglet *Serveurs de jeu* : mets un **nom** et l'adresse `IP:port de requête`, puis **Ajouter**")},
+    "welcome_dc_t": {"en": "💬 Option B — Right here in Discord", "fr": "💬 Méthode B — Directement dans Discord"},
+    "welcome_dc": {"en": ("**1.** `/config channels` → pick the **dashboard** channel (and a **history** channel for alerts, optional)\n"
+                          "**2.** `/config add-server` → a **name** (e.g. Ragnarok) + the address `IP:query port`\n"
+                          "**3.** `/config timezone` → start typing your city (e.g. `Europe/Par`) and pick it in the list\n"
+                          "**4.** `/config language` → English or Français"),
+                   "fr": ("**1.** `/config channels` → choisis le salon du **tableau de bord** (et un salon d'**historique** pour les alertes, facultatif)\n"
+                          "**2.** `/config add-server` → un **nom** (ex. Ragnarok) + l'adresse `IP:port de requête`\n"
+                          "**3.** `/config timezone` → commence à taper ta ville (ex. `Europe/Par`) et choisis-la dans la liste\n"
+                          "**4.** `/config language` → English ou Français")},
+    "welcome_tips_t": {"en": "💡 Good to know", "fr": "💡 Bon à savoir"},
+    "welcome_tips": {"en": ("• The **query port** is often different from the game port: check your host's panel.\n"
+                            "• The dashboard appears within a minute. `/config status` shows if everything is OK.\n"
+                            "• `/setup` shows this guide again, `/help` lists all commands."),
+                     "fr": ("• Le **port de requête** (query port) est souvent différent du port de jeu : regarde le panel de ton hébergeur.\n"
+                            "• Le tableau de bord apparaît en moins d'une minute. `/config status` dit si tout est bon.\n"
+                            "• `/setup` réaffiche ce guide, `/help` liste toutes les commandes.")},
+    "welcome_fr_hint": {"en": "🇫🇷 En français : tape `/config language` et choisis Français.", "fr": ""},
+    "setup_title": {"en": "🛠️ {brand} setup guide", "fr": "🛠️ Guide de configuration de {brand}"},
+    "btn_web": {"en": "Configure on the website", "fr": "Configurer sur le site"},
+    "btn_guide": {"en": "Full tutorial", "fr": "Tuto complet"},
+    "btn_support": {"en": "Support", "fr": "Support"},
     "err_generic": {"en": "❌ An error occurred. Please try again in a moment.",
                     "fr": "❌ Une erreur est survenue. Réessaie dans un instant."},
     "err_admin": {"en": "⛔ Restricted to members with the “Manage Server” permission.",
@@ -268,7 +290,8 @@ STR = {
     "help_desc": {"en": ("**For everyone**\n"
                          "`/history` — last connection of a player on each map\n"
                          "`/info` — a player's playtime\n"
-                         "`/stats` — Discord server statistics\n\n"
+                         "`/stats` — Discord server statistics\n"
+                         "`/setup` — step-by-step setup guide\n\n"
                          "**For admins** (*Manage Server* permission)\n"
                          "`/config channels` • `/config add-server` • `/config remove-server` • `/config timezone` • `/config language` • `/config status`\n"
                          "`/blacklist add|remove|list` • `/tribe set|remove|list`\n"
@@ -276,7 +299,8 @@ STR = {
                   "fr": ("**Pour tout le monde**\n"
                          "`/history` — dernière connexion d'un joueur sur chaque map\n"
                          "`/info` — temps de jeu d'un joueur\n"
-                         "`/stats` — statistiques du serveur Discord\n\n"
+                         "`/stats` — statistiques du serveur Discord\n"
+                         "`/setup` — guide de configuration pas à pas\n\n"
                          "**Pour les administrateurs** (permission *Gérer le serveur*)\n"
                          "`/config channels` • `/config add-server` • `/config remove-server` • `/config timezone` • `/config language` • `/config status`\n"
                          "`/blacklist add|remove|list` • `/tribe set|remove|list`\n"
@@ -1155,17 +1179,43 @@ async def on_ready():
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="/help"))
 
 
+def site_page(name):
+    """Adresse d'une page du site (ex. guide.html), à partir de SITE_URL ou de l'adresse de la console."""
+    base = SITE_URL or (DASHBOARD_URL.rsplit("/", 1)[0] if DASHBOARD_URL else "")
+    return f"{base.rstrip('/')}/{name}" if base else ""
+
+
+def setup_guide(guild_id, lang, title="welcome_title"):
+    """Tuto de démarrage : embed + boutons (site, tuto complet, support)."""
+    embed = discord.Embed(title=tr(lang, title, brand=BRAND), description=tr(lang, "welcome_desc"),
+                          color=discord.Color.blue())
+    if WEB_ENABLED:
+        embed.add_field(name=tr(lang, "welcome_web_t"), value=tr(lang, "welcome_web"), inline=False)
+    embed.add_field(name=tr(lang, "welcome_dc_t"), value=tr(lang, "welcome_dc"), inline=False)
+    embed.add_field(name=tr(lang, "welcome_tips_t"), value=tr(lang, "welcome_tips"), inline=False)
+    if tr(lang, "welcome_fr_hint"):
+        embed.set_footer(text=tr(lang, "welcome_fr_hint").replace("`", ""))
+    view = discord.ui.View()
+    if WEB_ENABLED:
+        view.add_item(discord.ui.Button(label=tr(lang, "btn_web"), url=f"{DASHBOARD_URL}#g={guild_id}"))
+    guide = site_page("guide.html" if lang == "en" else "guide.html?lang=fr")
+    if guide:
+        view.add_item(discord.ui.Button(label=tr(lang, "btn_guide"), url=guide))
+    if SUPPORT_URL:
+        view.add_item(discord.ui.Button(label=tr(lang, "btn_support"), url=SUPPORT_URL))
+    return embed, view
+
+
 @bot.event
 async def on_guild_join(guild):
     await ensure_guild(guild.id)
     target = guild.system_channel if can_write(guild.system_channel) else next(
         (c for c in guild.text_channels if can_write(c)), None)
     if target:
-        lang = DEFAULT_LANG
-        await safe_send(target, embed=discord.Embed(
-            title=tr(lang, "welcome_title", brand=BRAND),
-            description=tr(lang, "welcome_desc"),
-            color=discord.Color.blue()))
+        # Langue du message : celle déclarée par la communauté Discord si c'est du français, sinon DEFAULT_LANG.
+        lang = "fr" if str(getattr(guild, "preferred_locale", "")).startswith("fr") else DEFAULT_LANG
+        embed, view = setup_guide(guild.id, lang)
+        await safe_send(target, embed=embed, view=view)
 
 
 @bot.event
@@ -1729,6 +1779,13 @@ async def help_slash(interaction: discord.Interaction):
     if links:
         embed.add_field(name=tr(lang, "help_links"), value=" • ".join(links), inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name="setup", description="Step-by-step guide to set up the bot.")
+@app_commands.guild_only()
+async def setup_slash(interaction: discord.Interaction):
+    embed, view = setup_guide(interaction.guild_id, await lang_of(interaction.guild_id), "setup_title")
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 # ======================================================================================
