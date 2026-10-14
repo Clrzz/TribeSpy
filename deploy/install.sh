@@ -16,7 +16,7 @@ fi
 ask() { local v; read -r -p "$1" v </dev/tty; printf '%s' "$v"; }
 
 echo "=== Installation d'un bot Discord ==="
-NAME=$(ask "Nom court du bot (ex : tribespy, perso) : ")
+NAME=$(ask "Nom court du bot (ex : tribespy) : ")
 NAME=$(printf '%s' "$NAME" | tr -cd 'a-zA-Z0-9_-' | tr 'A-Z' 'a-z')
 [ -n "$NAME" ] || { echo "Nom vide."; exit 1; }
 REPO=$(ask "Dépôt GitHub (ex : Clrzz/TribeSpy) : ")
