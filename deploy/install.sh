@@ -30,6 +30,13 @@ echo "--> Installation de Python et Git"
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git python3 python3-venv python3-pip >/dev/null
 
+# Petits serveurs (1 Go, ex : VM.Standard.E2.1.Micro) : 2 Go de mémoire de secours (swap).
+if [ ! -f /swapfile ] && [ "$(awk '/MemTotal/ {print $2}' /proc/meminfo)" -lt 2000000 ]; then
+  echo "--> Ajout de 2 Go de mémoire de secours"
+  fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap -q /swapfile && swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
 id bots >/dev/null 2>&1 || useradd --system --home /opt/bots --shell /usr/sbin/nologin bots
 
 echo "--> Téléchargement du code"
