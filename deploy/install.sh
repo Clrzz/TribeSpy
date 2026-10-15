@@ -20,7 +20,7 @@ NAME=$(ask "Nom court du bot (ex : tribespy) : ")
 NAME=$(printf '%s' "$NAME" | tr -cd 'a-zA-Z0-9_-' | tr 'A-Z' 'a-z')
 [ -n "$NAME" ] || { echo "Nom vide."; exit 1; }
 REPO=$(ask "Dépôt GitHub (ex : Clrzz/TribeSpy) : ")
-TOKEN=$(ask "Jeton GitHub (seulement si le dépôt est privé, sinon Entrée) : ")
+TOKEN=$(ask "Jeton GitHub (dépôt privé, 1re installation seulement ; sinon Entrée) : ")
 
 DIR=/opt/bots/$NAME
 ENV_FILE=/etc/bots/$NAME.env
@@ -42,8 +42,12 @@ id bots >/dev/null 2>&1 || useradd --system --home /opt/bots --shell /usr/sbin/n
 echo "--> Téléchargement du code"
 if [ -n "$TOKEN" ]; then URL="https://x-access-token:$TOKEN@github.com/$REPO.git"; else URL="https://github.com/$REPO.git"; fi
 if [ -d "$DIR/.git" ]; then
-  git -C "$DIR" remote set-url origin "$URL"
-  git -C "$DIR" fetch -q origin && git -C "$DIR" reset -q --hard "origin/$(git -C "$DIR" rev-parse --abbrev-ref origin/HEAD | cut -d/ -f2)"
+  # Mise à jour : sans nouveau jeton, on garde l'adresse déjà enregistrée (avec son jeton éventuel).
+  # Le dossier appartient à l'utilisateur bots : on dit à git (lancé en root) qu'il est sûr.
+  G=(git -c safe.directory="$DIR" -C "$DIR")
+  if [ -n "$TOKEN" ]; then "${G[@]}" remote set-url origin "$URL"; fi
+  "${G[@]}" fetch -q origin
+  "${G[@]}" reset -q --hard "origin/$("${G[@]}" rev-parse --abbrev-ref origin/HEAD | cut -d/ -f2)"
 else
   git clone -q "$URL" "$DIR"
 fi
